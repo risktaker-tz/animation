@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Max &amp; Rex: The Homework Trick — StoryForge Studio Demo</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: radial-gradient(1200px 700px at 50% -10%, #2a2140 0%, #15121f 55%, #0d0b13 100%);
+    color: #f2eefc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    min-height: 100vh; display: flex; flex-direction: column; align-items: center;
+    padding: 32px 16px 48px;
+  }
+  .badge {
+    display: inline-block; padding: 6px 14px; border-radius: 999px;
+    background: rgba(255,178,64,.14); border: 1px solid rgba(255,178,64,.45);
+    color: #ffc46b; font-size: 13px; letter-spacing: .12em; text-transform: uppercase; margin-bottom: 14px;
+  }
+  h1 { font-size: clamp(24px, 4.5vw, 40px); text-align: center; margin-bottom: 6px; }
+  .sub { color: #b7aed0; text-align: center; margin-bottom: 24px; font-size: 15px; }
+  .player {
+    width: 100%; max-width: 960px; background: #000; border-radius: 18px; overflow: hidden;
+    box-shadow: 0 24px 80px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.08);
+  }
+  video { width: 100%; aspect-ratio: 16/9; display: block; background: #000; }
+  .actions { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; margin-top: 26px; }
+  a.btn {
+    display: inline-flex; align-items: center; gap: 10px; text-decoration: none;
+    padding: 15px 28px; border-radius: 14px; font-size: 16px; font-weight: 600;
+    transition: transform .15s ease, box-shadow .15s ease;
+  }
+  a.btn:hover { transform: translateY(-2px); }
+  .btn-primary { background: linear-gradient(135deg, #ffb240, #ff7847); color: #1a1020; box-shadow: 0 10px 30px rgba(255,138,71,.35); }
+  .btn-ghost { background: rgba(255,255,255,.07); color: #e8e2f5; border: 1px solid rgba(255,255,255,.18); }
+  .hint { margin-top: 18px; color: #8f86a8; font-size: 13.5px; text-align: center; max-width: 640px; line-height: 1.6; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 22px; }
+  .chip { padding: 6px 12px; border-radius: 999px; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); font-size: 12.5px; color: #c9c1de; }
+</style>
+</head>
+<body>
+  <span class="badge">StoryForge Studio · Demo Export</span>
+  <h1>🎬 Max &amp; Rex: The Homework Trick</h1>
+  <p class="sub">A 2-minute silhouette animation about a kid who doesn't want to study — but loves animals. Press play ▶</p>
+
+  <div class="player">
+    <video controls playsinline preload="metadata" poster="/max-and-rex-preview.jpg">
+      <source src="/max-and-rex-story.mp4" type="video/mp4">
+      Your browser does not support embedded video.
+    </video>
+  </div>
+
+  <div class="actions">
+    <a class="btn btn-primary" href="/max-and-rex-story.mp4" download="max-and-rex-story.mp4">⬇ Download Video (2:02 · 5.5 MB)</a>
+    <a class="btn btn-ghost" href="/max-and-rex-preview.jpg" download="max-and-rex-story-frames.jpg">🖼 Scene Contact Sheet</a>
+    <a class="btn btn-ghost" href="/">🏠 Open StoryForge Studio</a>
+  </div>
+
+  <p class="hint">
+    Tip: the <b>Download Video</b> button saves the file straight to your <b>Chrome / Downloads</b> folder.
+    You can also right-click the player and choose <i>"Save video as…"</i>.
+  </p>
+
+  <div class="chips">
+    <span class="chip">🗣️ Neural voices — kid / mom / dad</span>
+    <span class="chip">🚶 30+ character interactions</span>
+    <span class="chip">🌗 Silhouette art style</span>
+    <span class="chip">🎵 Procedural music &amp; SFX</span>
+    <span class="chip">📹 720p H.264 export</span>
+  </div>
+</body>
+</html>
