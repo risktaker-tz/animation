@@ -47,3 +47,24 @@ Stage Summary:
 - Video deliverable: /home/z/my-project/download/max-and-rex-story.mp4 (2 min 2 s) + .storyforge.json bundle.
 - Repo: risktaker-tz/animation @ main (commit 093a5e0).
 - Ops note: run `python3 scripts/serve_tts.py` for voices (README has setup); voices disk-cache at models/cache.
+
+---
+Task ID: 3
+Agent: main (Z.ai)
+Task: Deliver the exported video so the user can watch it in-browser and save it to their local Downloads.
+
+Work Log:
+- Verified max-and-rex-story.mp4 integrity (ffprobe: 122.1 s, 1280x720, h264+aac, 5.49 MB).
+- Generated 3x3 contact sheet download/max-and-rex-preview.jpg (verified with PIL).
+- Found live preview origin in dev.log: preview-chat-e0fa60dd-0d04-4348-83e5-c52a97f6bc95.space-z.ai.
+- Copied mp4 + jpg into public/ and created public/watch.html (cinematic watch page: inline player, poster, big Download button with download attr, studio link, feature chips).
+- Verified serving via Host-header curl: watch.html/mp4/jpg all HTTP 200 with correct content-types.
+- Created GitHub release demo-video-v1 on risktaker-tz/animation (id 425054685) with mp4 + jpg + storyforge.json assets; confirmed asset download 200 (5,487,849 bytes) with auth.
+- Discovered repo is private -> release link requires user logged into GitHub; preview link is the anonymous-friendly path.
+- Committed public/ watch page + video as 390f6e7 and pushed to main (only the 3 new files staged).
+
+Stage Summary:
+- Watch page: https://preview-chat-e0fa60dd-0d04-4348-83e5-c52a97f6bc95.space-z.ai/watch.html (play + one-click download).
+- Direct file: .../max-and-rex-story.mp4 (same origin).
+- Permanent backup: https://github.com/risktaker-tz/animation/releases/download/demo-video-v1/max-and-rex-story.mp4 (needs GitHub login; repo is private).
+- Repo: main @ 390f6e7. Nothing else on GitHub touched.
