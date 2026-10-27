@@ -2,7 +2,7 @@ import type { AnimalVariant } from '@/lib/animals';
 import { buildAnimalSvg, animalKey, variantForAction } from '@/lib/animals';
 import type { Character, Project } from '@/lib/types';
 import { isAnimal } from '@/lib/types';
-import { buildCharacterSvg, lookKey, POSE_FOR_ACTION, type Pose } from '@/lib/character-svg';
+import { buildCharacterSvg, buildCharacterBackSvg, lookKey, POSE_FOR_ACTION, type Pose } from '@/lib/character-svg';
 import { getBackground } from '@/lib/backgrounds';
 
 /**
@@ -102,8 +102,19 @@ export async function preloadProjectAssets(
         for (const b of shot.beats) {
           const p = POSE_FOR_ACTION[b.action];
           if (p) poses.add(p);
+          if (b.action === 'exit') {
+            // walk-off beats show the back view while leaving
+            poses.add('walkA');
+            poses.add('walkB');
+          }
         }
-        for (const p of poses) tasks.push(ensureCharacterImage(ch, p).catch(() => undefined));
+        for (const p of poses) {
+          tasks.push(ensureCharacterImage(ch, p).catch(() => undefined));
+          // back view used by exits and turn-aways
+          tasks.push(
+            ensureImage(lookKey(ch.look, p, 'back'), buildCharacterBackSvg(ch.look, p)).catch(() => undefined)
+          );
+        }
       }
     }
   }

@@ -34,6 +34,10 @@ export interface FaceDrawOpts {
   blinkOpen?: number;
   /** gaze offset in units of head radius, clamped to [-1,1] */
   gaze?: { dx: number; dy: number };
+  /** 0..1 head turn toward the sprite's +x side (3/4 profile). The body
+   *  flip handles the actual screen direction; this slides the features
+   *  toward the profile edge and narrows the face slightly. */
+  yaw?: number;
 }
 
 /** Deterministic blink clock: every character blinks ~every 3.6 s (with jitter) */
@@ -89,10 +93,19 @@ export function drawFace(
   const browCol = shade(opts.look.hairColor, -6);
   const iris = opts.look.irisColor ?? '#5B7C99';
   const lipCol = 'rgba(168,88,88,0.92)';
+  const yaw = Math.max(0, Math.min(1, opts.yaw ?? 0));
 
   ctx.save();
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
+
+  // ---- head turn (3/4 view): squeeze + slide all features toward +x ----
+  if (yaw > 0.01) {
+    ctx.translate(cx, cy);
+    ctx.scale(1 - yaw * 0.17, 1);
+    ctx.translate(yaw * rx * 0.46, 0);
+    ctx.translate(-cx, -cy);
+  }
 
   // ---- eye sockets (subtle AO) ----
   for (const side of [-1, 1]) {
@@ -205,6 +218,20 @@ export function drawFace(
   ctx.beginPath();
   ctx.ellipse(cx - rx * 0.05, noseY - ry * 0.02, rx * 0.045, ry * 0.025, -0.4, 0, Math.PI * 2);
   ctx.fill();
+
+  // ---- profile nose hint when the head is turned ----
+  if (yaw > 0.45) {
+    const k = (yaw - 0.45) / 0.55;
+    ctx.strokeStyle = 'rgba(120,74,52,0.6)';
+    ctx.lineWidth = lw * 0.85;
+    ctx.beginPath();
+    ctx.moveTo(cx + rx * (0.9 + k * 0.08), noseY - ry * 0.14);
+    ctx.quadraticCurveTo(
+      cx + rx * (1.0 + k * 0.14), noseY - ry * 0.02,
+      cx + rx * (0.92 + k * 0.1), noseY + ry * 0.08
+    );
+    ctx.stroke();
+  }
 
   // ---- blush ----
   if (p.blush > 0.02) {

@@ -166,7 +166,7 @@ function leftArm(pose: Pose, g: Geometry): ArmPose {
     case 'clap':
       return { elbow: [sx - 4, sy + 62], hand: [sx + 56, sy + 116] };
     case 'phone':
-      return { elbow: [sx - 20, sy + 66], hand: [sx + 26, sy + 118] };
+      return { elbow: [sx - 8, sy + 44], hand: [sx + 38, g.head.cy + 18] };
     case 'sit':
       return { elbow: [sx - 16, sy + 58], hand: [sx + 30, g.hipY - 8] };
     case 'sad':
@@ -177,7 +177,7 @@ function leftArm(pose: Pose, g: Geometry): ArmPose {
     case 'whisper':
       return { elbow: [sx - 4, sy + 30], hand: [sx + 58, g.head.cy + 14] };
     case 'pet':
-      return { elbow: [sx + 10, sy + 60], hand: [sx + 52, sy + 150] };
+      return { elbow: [sx + 18, sy + 128], hand: [sx + 64, sy + 232] };
     case 'sneak':
       return { elbow: [sx - 20, sy + 50], hand: [sx - 8, sy + 96] };
     case 'facepalm':
@@ -483,11 +483,11 @@ function poseProps(pose: Pose, g: Geometry, p: Palette): string {
         </g>`;
     }
     case 'write':
-      return `<line x1="${256 + 58}" y1="${g.shoulderY + 116}" x2="${256 + 74}" y2="${g.shoulderY + 148}" stroke="#E8A23E" stroke-width="7" stroke-linecap="round"/>
-              <line x1="${256 + 74}" y1="${g.shoulderY + 148}" x2="${256 + 78}" y2="${g.shoulderY + 156}" stroke="#5A4632" stroke-width="7" stroke-linecap="round"/>`;
+      return `<line x1="${256 - 16}" y1="${g.shoulderY + 118}" x2="${256 - 4}" y2="${g.shoulderY + 150}" stroke="#E8A23E" stroke-width="7" stroke-linecap="round"/>
+              <line x1="${256 - 4}" y1="${g.shoulderY + 150}" x2="${256}" y2="${g.shoulderY + 158}" stroke="#5A4632" stroke-width="7" stroke-linecap="round"/>`;
     case 'phone':
-      return `<rect x="${g.shoulderLX + 20}" y="${g.head.cy + 2}" width="18" height="34" rx="5" fill="#2E323C" stroke="${OUTLINE}" stroke-width="1.4" transform="rotate(-14 ${g.shoulderLX + 29} ${g.head.cy + 19})"/>
-              <rect x="${g.shoulderLX + 23}" y="${g.head.cy + 8}" width="12" height="20" rx="2.5" fill="#7FA8C9" transform="rotate(-14 ${g.shoulderLX + 29} ${g.head.cy + 19})" opacity="0.85"/>`;
+      return `<rect x="${g.shoulderLX + 30}" y="${g.head.cy + 6}" width="19" height="36" rx="5" fill="#2E323C" stroke="${OUTLINE}" stroke-width="1.4" transform="rotate(-12 ${g.shoulderLX + 39} ${g.head.cy + 24})"/>
+              <rect x="${g.shoulderLX + 33}" y="${g.head.cy + 12}" width="13" height="21" rx="2.5" fill="#7FA8C9" transform="rotate(-12 ${g.shoulderLX + 39} ${g.head.cy + 24})" opacity="0.85"/>`;
     case 'give':
       return `<circle cx="256" cy="${g.shoulderY + 128}" r="17" fill="#E8B36A" stroke="${OUTLINE}" stroke-width="2" opacity="0.95"/>
               <circle cx="250" cy="${g.shoulderY + 122}" r="5" fill="rgba(255,255,255,0.5)"/>`;
@@ -497,25 +497,143 @@ function poseProps(pose: Pose, g: Geometry, p: Palette): string {
   void p;
 }
 
+// ---------------------------------------------------------------- shared body
+
+interface BodyParts {
+  legs: string;
+  armR: string;
+  armL: string;
+  neck: string;
+  torso: string;
+}
+
+/**
+ * Body construction shared by the front and back views.
+ * Draw order fix (v3.1): BOTH arms render IN FRONT of the torso — previously
+ * they were drawn behind it, so poses with hands near the body (write, read,
+ * hug, give, clap, sad…) made arms disappear into the outfit.
+ */
+function bodyParts(look: CharacterLook, pose: Pose, g: Geometry, p: Palette): BodyParts {
+  const armL = leftArm(pose, g);
+  const armR = mirror(armL, g);
+  const sleeveW = Math.round(g.armW * 1.12);
+  const armLimb = (ap: ArmPose, side: 'L' | 'R') => {
+    const sx = side === 'L' ? g.shoulderLX + 4 : 512 - (g.shoulderLX + 4);
+    return limb(sx, g.shoulderY + 6, ap.elbow[0], ap.elbow[1], ap.hand[0], ap.hand[1], sleeveW, p, 'cloth', true);
+  };
+  return {
+    legs: legs(look, g, pose, p),
+    armR: armLimb(armR, 'R'),
+    armL: armLimb(armL, 'L'),
+    neck: `
+      <rect x="${256 - g.neckW / 2}" y="${g.neckTopY}" width="${g.neckW}" height="${g.shoulderY - g.neckTopY + 10}" rx="${g.neckW / 3}" fill="url(#gNeck)"/>
+      <ellipse cx="256" cy="${g.neckTopY + 5}" rx="${g.neckW * 0.62}" ry="7" fill="${p.skinLo}" opacity="0.55"/>`,
+    torso: outfitTorso(look, g, p),
+  };
+}
+
+/** Simplified outfit seen from behind (no lapels / pockets / neckline) */
+function outfitBack(look: CharacterLook, g: Geometry, p: Palette): string {
+  const { shoulderLX: lx, shoulderRX: rx2, shoulderY: sy, hipY, torsoHalfW: tw } = g;
+  const base = `M ${lx} ${sy} Q 256 ${sy - 22} ${rx2} ${sy} L ${256 + tw} ${hipY - 6} Q 256 ${hipY + 10} ${256 - tw} ${hipY - 6} Z`;
+  const grad = `url(#gCloth)`;
+  const volume = `
+    <path d="M ${lx} ${sy} Q 256 ${sy - 22} ${rx2} ${sy} L ${256 + tw} ${hipY - 6} Q 256 ${hipY + 10} ${256 - tw} ${hipY - 6} Z" fill="url(#gShadeL)" opacity="0.5"/>
+    <path d="M ${lx + 12} ${sy + 6} Q ${lx + 4} ${sy + 90} ${lx + 16} ${hipY - 10}" stroke="rgba(255,255,255,0.16)" stroke-width="6" stroke-linecap="round" fill="none"/>`;
+  let detail = '';
+  switch (look.outfit) {
+    case 'hoodie':
+      // hood hanging down the back
+      detail = `<path d="M ${256 - g.neckW - 8} ${sy - 6} Q 256 ${sy + 44} ${256 + g.neckW + 8} ${sy - 6}
+               Q ${256 + g.neckW - 2} ${sy + 26} 256 ${sy + 30} Q ${256 - g.neckW + 2} ${sy + 26} ${256 - g.neckW - 8} ${sy - 6} Z"
+            fill="${p.clothLo}" stroke="${OUTLINE}" stroke-width="1.4"/>`;
+      break;
+    case 'dress':
+      detail = `<path d="M ${256 - tw - 8} ${hipY + 96} Q 256 ${hipY + 120} ${256 + tw + 8} ${hipY + 96}" stroke="rgba(255,255,255,0.28)" stroke-width="5" fill="none"/>`;
+      break;
+    case 'sweater':
+      detail = `<path d="M ${256 - tw - 1} ${hipY + 2} Q 256 ${hipY + 16} ${256 + tw + 1} ${hipY + 2}" stroke="${p.clothLo}" stroke-width="5" fill="none" opacity="0.8"/>`;
+      break;
+    case 'blazer':
+      detail = `<path d="M 256 ${sy + 4} L 256 ${hipY - 12}" stroke="${p.clothLo}" stroke-width="3.5" opacity="0.6"/>`;
+      break;
+    default:
+      break;
+  }
+  return `<path d="${base}" fill="${grad}" stroke="${OUTLINE}" stroke-width="1.8"/>${detail}${volume}`;
+}
+
+/** Back of the head: hair fully covers the head oval, ears on the sides */
+function backHead(look: CharacterLook, g: Geometry, p: Palette): string {
+  const h = g.head;
+  const grad = `url(#gHair)`;
+  const ears = `
+    <ellipse cx="${h.cx - h.rx - 3}" cy="${h.cy + h.ry * 0.12}" rx="${h.rx * 0.16}" ry="${h.rx * 0.24}" fill="url(#gSkin)" stroke="${OUTLINE}" stroke-width="1.3"/>
+    <ellipse cx="${h.cx + h.rx + 3}" cy="${h.cy + h.ry * 0.12}" rx="${h.rx * 0.16}" ry="${h.rx * 0.24}" fill="url(#gSkin)" stroke="${OUTLINE}" stroke-width="1.3"/>`;
+  const skull = `<path d="${headPath(h)}" fill="${grad}" stroke="${OUTLINE}" stroke-width="1.8"/>
+    <ellipse cx="${h.cx}" cy="${h.cy - h.ry * 0.28}" rx="${h.rx * 0.5}" ry="${h.ry * 0.34}" fill="rgba(255,255,255,0.14)"/>`;
+  const nape = `<path d="M ${h.cx - h.rx * 0.52} ${h.cy + h.ry * 0.62}
+             Q ${h.cx} ${h.cy + h.ry * 0.86} ${h.cx + h.rx * 0.52} ${h.cy + h.ry * 0.62}
+             L ${h.cx + h.rx * 0.42} ${h.cy + h.ry * 1.04}
+             Q ${h.cx} ${h.cy + h.ry * 1.2} ${h.cx - h.rx * 0.42} ${h.cy + h.ry * 1.04} Z" fill="${p.hairLo}" opacity="0.9"/>`;
+  switch (look.hair) {
+    case 'long':
+      return `${ears}
+        <path d="M ${h.cx - h.rx - 6} ${h.cy - h.ry * 0.5}
+                 C ${h.cx - h.rx - 16} ${g.chinY + 150} ${h.cx - h.rx + 8} ${g.chinY + 190} ${h.cx} ${g.chinY + 196}
+                 C ${h.cx + h.rx - 8} ${g.chinY + 190} ${h.cx + h.rx + 16} ${g.chinY + 150} ${h.cx + h.rx + 6} ${h.cy - h.ry * 0.5} Z" fill="${grad}" stroke="${OUTLINE}" stroke-width="1.6"/>
+        ${skull}
+        <path d="M ${h.cx - 10} ${h.cy} C ${h.cx - 16} ${g.chinY + 60} ${h.cx - 6} ${g.chinY + 120} ${h.cx - 2} ${g.chinY + 170}" stroke="${p.hairHi}" stroke-width="6" stroke-linecap="round" fill="none" opacity="0.5"/>`;
+    case 'wavy':
+      return `${ears}
+        <path d="M ${h.cx - h.rx - 4} ${h.cy - h.ry * 0.4}
+                 C ${h.cx - h.rx - 18} ${g.chinY + 90} ${h.cx - h.rx + 2} ${g.chinY + 140} ${h.cx} ${g.chinY + 148}
+                 C ${h.cx + h.rx - 2} ${g.chinY + 140} ${h.cx + h.rx + 18} ${g.chinY + 90} ${h.cx + h.rx + 4} ${h.cy - h.ry * 0.4} Z" fill="${grad}" stroke="${OUTLINE}" stroke-width="1.6"/>
+        ${skull}`;
+    case 'ponytail':
+      return `${ears}
+        <circle cx="${h.cx}" cy="${h.cy - h.ry * 0.82}" r="15" fill="${p.hairLo}" stroke="${OUTLINE}" stroke-width="1.3"/>
+        <path d="M ${h.cx - 8} ${h.cy - h.ry * 0.7}
+                 C ${h.cx - 20} ${g.chinY + 30} ${h.cx - 14} ${g.chinY + 110} ${h.cx + 4} ${g.chinY + 150}
+                 C ${h.cx + 16} ${g.chinY + 100} ${h.cx + 14} ${g.chinY + 20} ${h.cx + 8} ${h.cy - h.ry * 0.7} Z" fill="${grad}" stroke="${OUTLINE}" stroke-width="1.5"/>
+        ${skull}`;
+    case 'bun':
+      return `${ears}
+        <circle cx="${h.cx}" cy="${h.cy - h.ry - 14}" r="24" fill="${grad}" stroke="${OUTLINE}" stroke-width="1.5"/>
+        <circle cx="${h.cx - 8}" cy="${h.cy - h.ry - 22}" r="8" fill="rgba(255,255,255,0.28)"/>
+        ${skull}`;
+    case 'curly':
+      return `${ears}
+        <circle cx="${h.cx - h.rx * 0.7}" cy="${h.cy - h.ry * 0.35}" r="22" fill="${grad}"/>
+        <circle cx="${h.cx + h.rx * 0.7}" cy="${h.cy - h.ry * 0.35}" r="22" fill="${grad}"/>
+        <circle cx="${h.cx - h.rx * 0.55}" cy="${h.cy + h.ry * 0.35}" r="20" fill="${p.hair}"/>
+        <circle cx="${h.cx + h.rx * 0.55}" cy="${h.cy + h.ry * 0.35}" r="20" fill="${p.hair}"/>
+        <circle cx="${h.cx}" cy="${h.cy - h.ry * 0.85}" r="20" fill="${grad}"/>
+        ${skull}
+        <circle cx="${h.cx + h.rx * 0.3}" cy="${h.cy - h.ry * 0.6}" r="7" fill="rgba(255,255,255,0.22)"/>`;
+    case 'spiky':
+      return `${ears}
+        ${skull}
+        <path d="M ${h.cx - h.rx * 0.9} ${h.cy - h.ry * 0.3} L ${h.cx - h.rx * 0.7} ${h.cy - h.ry * 1.25}
+                 L ${h.cx - h.rx * 0.35} ${h.cy - h.ry * 0.72} L ${h.cx} ${h.cy - h.ry * 1.4}
+                 L ${h.cx + h.rx * 0.35} ${h.cy - h.ry * 0.72} L ${h.cx + h.rx * 0.7} ${h.cy - h.ry * 1.25}
+                 L ${h.cx + h.rx * 0.9} ${h.cy - h.ry * 0.3}
+                 C ${h.cx + h.rx * 0.4} ${h.cy - h.ry * 0.62} ${h.cx - h.rx * 0.4} ${h.cy - h.ry * 0.62} ${h.cx - h.rx * 0.9} ${h.cy - h.ry * 0.3} Z"
+              fill="${grad}" stroke="${OUTLINE}" stroke-width="1.6"/>`;
+    case 'buzz':
+      return `${ears}${skull.replace(`stroke-width="1.8"`, `stroke-width="1.8" opacity="0.94"`)}`;
+    case 'short':
+    default:
+      return `${ears}${skull}${nape}`;
+  }
+}
+
 /** Builds the full character sprite SVG (face features are drawn by the engine) */
 export function buildCharacterSvg(look: CharacterLook, pose: Pose = 'idle'): string {
   const g = geometry(look);
   const p = palette(look);
-  const armL = leftArm(pose, g);
-  const armR = mirror(armL, g);
+  const body = bodyParts(look, pose, g, p);
   const h = g.head;
-
-  const sleeveW = Math.round(g.armW * 1.12);
-  const sleeve = (ap: ArmPose) =>
-    limb(g.shoulderLX + 4, g.shoulderY + 6, ap.elbow[0], ap.elbow[1], ap.hand[0], ap.hand[1], sleeveW, p, 'cloth', true);
-  const armRSleeve = (ap: ArmPose) => {
-    const m = mirror(ap, g);
-    return limb(512 - (g.shoulderLX + 4), g.shoulderY + 6, m.elbow[0], m.elbow[1], m.hand[0], m.hand[1], sleeveW, p, 'cloth', true);
-  };
-
-  const neck = `
-    <rect x="${256 - g.neckW / 2}" y="${g.neckTopY}" width="${g.neckW}" height="${g.shoulderY - g.neckTopY + 10}" rx="${g.neckW / 3}" fill="url(#gNeck)"/>
-    <ellipse cx="256" cy="${g.neckTopY + 5}" rx="${g.neckW * 0.62}" ry="7" fill="${p.skinLo}" opacity="0.55"/>`;
 
   const head = `
     <g>
@@ -533,16 +651,37 @@ export function buildCharacterSvg(look: CharacterLook, pose: Pose = 'idle'): str
     </g>`;
 
   const figure = `
-    ${legs(look, g, pose, p)}
-    ${armRSleeve(armR)}
-    ${sleeve(armL)}
-    ${neck}
-    ${outfitTorso(look, g, p)}
+    ${body.legs}
+    ${body.neck}
+    ${body.torso}
+    ${body.armR}
+    ${body.armL}
     ${hairShapes(look, g, p)}
     ${head}
     ${poseProps(pose, g, p)}
   `;
 
+  return characterSvgShell(p, figure);
+}
+
+/** Back-view sprite: same body, hair covers the whole head, no face features */
+export function buildCharacterBackSvg(look: CharacterLook, pose: Pose = 'idle'): string {
+  const g = geometry(look);
+  const p = palette(look);
+  const body = bodyParts(look, pose, g, p);
+  const figure = `
+    ${body.legs}
+    ${body.armR}
+    ${body.neck}
+    ${outfitBack(look, g, p)}
+    ${body.armL}
+    ${backHead(look, g, p)}
+  `;
+  return characterSvgShell(p, figure);
+}
+
+/** Shared SVG wrapper (gradient defs + viewport) for both views */
+function characterSvgShell(p: Palette, figure: string): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${SPRITE_W} ${SPRITE_H}" width="${SPRITE_W}" height="${SPRITE_H}">
   <defs>
     <radialGradient id="gSkin" cx="0.38" cy="0.28" r="0.95">
@@ -577,14 +716,21 @@ export function buildCharacterSvg(look: CharacterLook, pose: Pose = 'idle'): str
       <stop offset="0" stop-color="rgba(40,26,20,0)"/>
       <stop offset="1" stop-color="rgba(40,26,20,0.35)"/>
     </linearGradient>
+    <linearGradient id="gShadeL" x1="1" y1="0" x2="0" y2="0">
+      <stop offset="0" stop-color="rgba(40,26,20,0)"/>
+      <stop offset="1" stop-color="rgba(40,26,20,0.35)"/>
+    </linearGradient>
   </defs>
   <g>${figure}</g>
 </svg>`;
 }
 
-/** stable cache key for a character look + pose */
-export function lookKey(look: CharacterLook, pose: Pose = 'idle'): string {
-  const s = `v3|${look.skin}|${look.hair}|${look.hairColor}|${look.outfit}|${look.outfitColor}|${look.pantsColor}|${look.glasses ? 1 : 0}|${look.irisColor ?? ''}|${look.age ?? 'adult'}|${pose}`;
+/** Character sprite view used by the cache key */
+export type SpriteView = 'front' | 'back';
+
+/** stable cache key for a character look + pose + view */
+export function lookKey(look: CharacterLook, pose: Pose = 'idle', view: SpriteView = 'front'): string {
+  const s = `v3.1|${look.skin}|${look.hair}|${look.hairColor}|${look.outfit}|${look.outfitColor}|${look.pantsColor}|${look.glasses ? 1 : 0}|${look.irisColor ?? ''}|${look.age ?? 'adult'}|${pose}|${view}`;
   let h = 5381;
   for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
   return `char-${h.toString(36)}`;

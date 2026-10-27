@@ -11,7 +11,7 @@ import type {
 import { NARRATOR_VOICE, isAnimal } from '@/lib/types';
 import { POSE_FOR_ACTION, type Pose } from '@/lib/character-svg';
 import { variantForAction, type AnimalVariant } from '@/lib/animals';
-import type { CastVisual, FrameState, FxInstance, FxKind } from './renderer';
+import type { CastVisual, FrameState, FxInstance, FxKind, Facing } from './renderer';
 import { POSITION_X, drawHFor, restingVisual, animalDrawH } from './renderer';
 
 // ---------------------------------------------------------------------------
@@ -114,6 +114,116 @@ const RETURN_MS = 560;
 const TRAVEL_IN = 0.3; // fraction of the beat spent walking toward the partner
 const TRAVEL_OUT = 0.72; // fraction when the walk back begins
 const STEP_MS = 150; // walk-cycle frame length
+/** How close the actor stands to the partner at the moment of contact.
+ *  Hugs/whispers are intimate, high-fives need swing room, fetch needs throw room. */
+const STAND_OFF: Partial<Record<BeatAction, number>> = {
+  hug: 112,
+  whisper: 108,
+  highfive: 152,
+  give: 136,
+  pet: 165,
+  fetch: 235,
+};
+const TURN_MS = 300; // pivot animation length
+
+// ---------------------------------------------------------------- facing
+
+interface FacingCue {
+  atMs: number;
+  facing: Facing;
+}
+
+function faceToward(meX: number, otherX: number): Facing {
+  return otherX >= meX ? 'right' : 'left';
+}
+
+/**
+ * Deterministic orientation cues for one cast member across a shot.
+ * People turn toward whomever they talk to / act with, face their walk
+ * direction during entrances, turn their back when leaving, and settle
+ * front-facing when addressing the audience.
+ */
+function buildFacingCues(
+  entry: CastEntry,
+  shot: Shot,
+  shotTiming: { startMs: number },
+  beatTimings: BeatTiming[],
+  enterMs: number
+): FacingCue[] {
+  const cues: FacingCue[] = [];
+  const homeX = POSITION_X[entry.position];
+
+  // entrances: face the walk direction, then settle front
+  if (entry.enter === 'walkLeft' || entry.enter === 'runLeft') {
+    cues.push({ atMs: shotTiming.startMs, facing: 'right' });
+    cues.push({ atMs: shotTiming.startMs + enterMs, facing: 'front' });
+  } else if (entry.enter === 'walkRight' || entry.enter === 'runRight') {
+    cues.push({ atMs: shotTiming.startMs, facing: 'left' });
+    cues.push({ atMs: shotTiming.startMs + enterMs, facing: 'front' });
+  }
+
+  for (const bt of beatTimings) {
+    const beat = shot.beats.find((b) => b.id === bt.beatId);
+    if (!beat) continue;
+    const dur = Math.max(1, bt.endMs - bt.startMs);
+
+    if (bt.characterId === entry.characterId) {
+      if (bt.targetCharacterId) {
+        const tEntry = shot.cast.find((c) => c.characterId === bt.targetCharacterId);
+        if (tEntry) {
+          const tX = POSITION_X[tEntry.position];
+          cues.push({ atMs: bt.startMs, facing: faceToward(homeX, tX) });
+          if (INTERACTION_ACTIONS.has(beat.action)) {
+            // face home while walking back, settle front afterwards
+            cues.push({ atMs: bt.startMs + dur * TRAVEL_OUT, facing: homeX <= 640 ? 'left' : 'right' });
+            cues.push({ atMs: bt.endMs, facing: 'front' });
+          }
+        }
+      } else if (beat.action === 'exit') {
+        // turn the back to the camera, then walk off into the distance
+        cues.push({ atMs: bt.startMs + dur * 0.16, facing: 'back' });
+      } else {
+        cues.push({ atMs: bt.startMs, facing: 'front' });
+      }
+    } else if (bt.targetCharacterId === entry.characterId && beat.action !== 'exit') {
+      const aEntry = bt.characterId ? shot.cast.find((c) => c.characterId === bt.characterId) : undefined;
+      if (aEntry) {
+        const aX = POSITION_X[aEntry.position];
+        cues.push({ atMs: bt.startMs, facing: faceToward(homeX, aX) });
+        if (beat.action === 'fetch') {
+          // the dog dashes after the ball, then comes back to the thrower
+          const away: Facing = aX > homeX ? 'left' : 'right';
+          cues.push({ atMs: bt.startMs + dur * 0.3, facing: away });
+          cues.push({ atMs: bt.startMs + dur * 0.62, facing: faceToward(homeX, aX) });
+        }
+      }
+    }
+  }
+
+  cues.sort((a, b) => a.atMs - b.atMs);
+  return cues;
+}
+
+function applyFacingCues(
+  v: CastVisual,
+  cues: FacingCue[],
+  tMs: number,
+  defaultFacing: Facing = 'front'
+): void {
+  if (!cues.length) {
+    v.facing = defaultFacing;
+    v.facingFrom = defaultFacing;
+    v.turnK = 1;
+    return;
+  }
+  let idx = cues.findIndex((c) => tMs < c.atMs);
+  if (idx === -1) idx = cues.length;
+  const cur = cues[Math.max(0, idx - 1)];
+  const prev = cues[Math.max(0, idx - 2)] ?? cur;
+  v.facing = cur.facing;
+  v.facingFrom = prev.facing;
+  v.turnK = Math.max(0, Math.min(1, (tMs - cur.atMs) / TURN_MS));
+}
 
 export function actionDuration(a: BeatAction): number {
   return ACTION_MS[a] ?? 0;
@@ -377,6 +487,25 @@ export function frameStateAt(
     }
   }
 
+  // --- orientation: who faces where (deterministic cue track) ---
+  const shotBeatTimings = timeline.beats.filter((b) => b.shotIndex === shotIdx);
+  for (const entry of shot.cast) {
+    const v = byId.get(entry.id);
+    if (!v) continue;
+    const ch = characters[entry.characterId];
+    const cues = buildFacingCues(entry, shot, shotTiming, shotBeatTimings, ENTER_MS[entry.enter] ?? 0);
+    if (ch && isAnimal(ch)) {
+      // animal sprites face right by default; default orientation = face the stage middle
+      const faceCenter: Facing = entry.position === 'right' ? 'left' : 'right';
+      applyFacingCues(v, cues, t, faceCenter);
+      if (v.facing === 'left') v.flip = true;
+      else if (v.facing === 'right') v.flip = false;
+      else if (v.facing === 'front') v.flip = entry.position === 'right';
+    } else {
+      applyFacingCues(v, cues, t);
+    }
+  }
+
   // --- fx from speaking/target state (spawned continuously by applyAction above)
 
   // --- gaze: everyone looks at whoever is speaking / acting
@@ -399,6 +528,17 @@ export function frameStateAt(
       if (tv && tv !== focusV) {
         focusV.gazeDx = Math.max(-1, Math.min(1, (tv.x - focusV.x) / 340));
       }
+    }
+  }
+
+  // --- side/back-facing characters commit their eyes to the turn ---
+  for (const v of visuals) {
+    if (v.facing === 'left' || v.facing === 'right') {
+      v.gazeDx = (v.gazeDx ?? 0) * 0.22;
+      v.gazeDy = (v.gazeDy ?? 0) * 0.5;
+    } else if (v.facing === 'back') {
+      v.gazeDx = 0;
+      v.gazeDy = 0;
     }
   }
 
@@ -443,6 +583,27 @@ function castIdOf(shot: Shot, characterId: string): string {
   return entry?.id ?? "";
 }
 
+/** How the partner behaves right after an interaction (during the walk-back) */
+function partnerReaction(target: CastVisual, action: BeatAction, q: number): void {
+  switch (action) {
+    case 'highfive':
+      target.pose = q < 0.55 ? 'cheer' : 'idle';
+      if (q < 0.55) target.footY -= Math.abs(Math.sin(q * Math.PI * 2)) * 6;
+      break;
+    case 'hug':
+      target.pose = q < 0.4 ? 'hug' : 'idle';
+      break;
+    case 'give':
+      target.pose = q < 0.5 ? 'cheer' : 'idle';
+      break;
+    case 'whisper':
+      target.pose = q < 0.35 ? 'shock' : 'idle';
+      break;
+    default:
+      break;
+  }
+}
+
 function easeOutCubic(p: number): number {
   return 1 - Math.pow(1 - p, 3);
 }
@@ -481,26 +642,41 @@ function applyAction(
   }
 
   // --- two-actor interactions: natural 3-phase choreography
-  // (walk in → act with contact motion → walk back)
+  // (approach with anticipation → contact with mutual motion → walk back + partner reaction)
   if (INTERACTION_ACTIONS.has(action) && actor && target && actorCh && !isAnimal(actorCh)) {
     const homeX = actor.homeX ?? 300;
-    const dir = target.x > homeX ? 1 : -1;
-    const stopX = target.x - dir * (GAP + (isAnimal(targetCh) ? 60 : 0));
+    const dir = target.x >= homeX ? 1 : -1;
+    const targetHome = target.homeX ?? target.x;
+    const partnerStep = action === 'hug' || action === 'highfive' ? 16 : 0;
+    const gap = STAND_OFF[action] ?? GAP;
+    const stopX = targetHome + partnerStep - dir * (gap + (isAnimal(targetCh) ? 60 : 0));
+    // keep the speech bubble clear of the interaction partner while up close
+    if (actor) actor.bubbleDx = -dir * 150;
     if (p < TRAVEL_IN) {
-      const e = easeInOutSine(p / TRAVEL_IN);
+      const q = p / TRAVEL_IN;
+      const e = easeInOutSine(q);
       actor.x = homeX + (stopX - homeX) * e;
-      const el = (p / TRAVEL_IN) * APPROACH_MS;
-      actor.pose = walkingPose(el);
-      actor.footY -= Math.abs(Math.sin((el / STEP_MS) * Math.PI)) * 5;
+      // raise the acting arm just before arriving (anticipation beat)
+      actor.pose = q > 0.84 ? (POSE_FOR_ACTION[action] ?? 'idle') : walkingPose(q * APPROACH_MS);
+      actor.footY -= Math.abs(Math.sin((q * APPROACH_MS) / STEP_MS * Math.PI)) * 5;
       actor.lean = dir * 0.05;
+      // the partner steps in to meet the actor halfway
+      if (partnerStep > 0 && !isAnimal(targetCh)) {
+        const te = easeInOutSine(Math.max(0, Math.min(1, (q - 0.45) / 0.55)));
+        target.x = targetHome - dir * partnerStep * te;
+      }
     } else if (p > TRAVEL_OUT) {
       const q = (p - TRAVEL_OUT) / (1 - TRAVEL_OUT);
       const e = easeInOutSine(q);
       actor.x = stopX + (homeX - stopX) * e;
-      const el = q * RETURN_MS;
-      actor.pose = walkingPose(el);
-      actor.footY -= Math.abs(Math.sin((el / STEP_MS) * Math.PI)) * 5;
+      actor.pose = walkingPose(q * RETURN_MS);
+      actor.footY -= Math.abs(Math.sin((q * RETURN_MS) / STEP_MS * Math.PI)) * 5;
       actor.lean = -dir * 0.05;
+      if (target && !isAnimal(targetCh)) {
+        // partner steps back home and reacts to what just happened
+        target.x = targetHome - dir * partnerStep * (1 - e);
+        partnerReaction(target, action, q);
+      }
     } else {
       // standing at the partner — contact micro-motion
       actor.x = stopX;
@@ -508,29 +684,38 @@ function applyAction(
       switch (action) {
         case 'hug': {
           const sway = Math.sin(act * Math.PI * 2);
-          actor.lean = dir * 0.055 + sway * 0.012;
-          if (target) target.lean = -dir * 0.055 - sway * 0.012;
+          const reach = Math.min(1, act * 3); // arms close in during the first instants
+          actor.lean = dir * (0.05 + 0.018 * reach) + sway * 0.012;
+          if (target) {
+            target.lean = -dir * (0.05 + 0.018 * reach) - sway * 0.012;
+            target.footY -= Math.abs(Math.sin(act * Math.PI * 2)) * 1.6; // shared little bounce
+          }
           break;
         }
         case 'highfive': {
           actor.lean = dir * 0.02;
           const pulse = Math.exp(-Math.pow((p - 0.52) * 14, 2)); // impact recoil
           if (target) {
-            target.scaleX = (target.scaleX ?? 1) + pulse * 0.04;
-            target.scaleY = (target.scaleY ?? 1) - pulse * 0.03;
-            target.lean = -dir * pulse * 0.06;
+            target.scaleX = (target.scaleX ?? 1) + pulse * 0.045;
+            target.scaleY = (target.scaleY ?? 1) - pulse * 0.035;
+            target.lean = -dir * pulse * 0.07;
           }
           break;
         }
         case 'whisper': {
           const leanIn = Math.sin(act * Math.PI);
           actor.lean = dir * (0.03 + leanIn * 0.1);
-          if (target) target.lean = -dir * 0.018 * leanIn;
+          if (target) target.lean = -dir * (0.02 + 0.02 * leanIn); // ear tilts toward the secret
           break;
         }
         case 'pet': {
           const stroke = Math.sin(act * Math.PI * 3);
           actor.footY -= Math.max(0, stroke) * 2.6; // 3 gentle strokes
+          break;
+        }
+        case 'give': {
+          const offer = Math.sin(Math.min(1, act * 1.4) * Math.PI);
+          actor.lean = dir * (0.015 + offer * 0.02);
           break;
         }
         default:
@@ -547,15 +732,19 @@ function applyAction(
     }
   }
 
-  // --- exit: walk off toward the nearest edge, then gone
+  // --- exit: turn the back (first third), then walk off into the distance
+  // (recede + shrink), gone
   if (action === 'exit' && actor) {
     const dir = (actor.homeX ?? 300) < 640 ? -1 : 1;
-    const e = easeInOutSine(p);
-    actor.x = (actor.homeX ?? 300) + dir * 560 * e;
-    actor.pose = walkingPose(p * 1050);
-    actor.footY -= Math.abs(Math.sin((p * 1050 / STEP_MS) * Math.PI)) * 5;
-    actor.lean = dir * 0.05;
-    if (p > 0.92) actor.visible = false;
+    const walkP = Math.max(0, (p - 0.3) / 0.7); // walk only after the turn
+    const e = easeInOutSine(walkP);
+    actor.x = (actor.homeX ?? 300) + dir * 700 * e;
+    actor.pose = walkingPose(walkP * 1050);
+    actor.footY -= Math.abs(Math.sin((walkP * 1050) / STEP_MS * Math.PI)) * 5 + 34 * e;
+    const depth = 1 - 0.12 * e;
+    actor.scaleX = (actor.scaleX ?? 1) * depth;
+    actor.scaleY = (actor.scaleY ?? 1) * depth;
+    if (p > 0.93) actor.visible = false;
   }
 
   // one-actor motions

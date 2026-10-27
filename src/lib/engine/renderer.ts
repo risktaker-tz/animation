@@ -15,6 +15,48 @@ export const POSITION_X: Record<Position, number> = {
   right: 980,
 };
 
+/** Which way a character is oriented on stage */
+export type Facing = 'front' | 'left' | 'right' | 'back';
+
+/** Body scale for each facing (negative = mirrored). 'back' pivots fully around. */
+const FACING_SCALE: Record<Facing, number> = {
+  front: 1,
+  right: 0.94,
+  left: -0.94,
+  back: -1,
+};
+
+function easeSine(k: number): number {
+  const c = Math.max(0, Math.min(1, k));
+  return -(Math.cos(Math.PI * c) - 1) / 2;
+}
+
+/** Horizontal body scale while pivoting between facings (cartoon turn-around) */
+export function facingBodyScale(v: CastVisual): number {
+  if (!v.facing) return 1;
+  const to = FACING_SCALE[v.facing];
+  const from = FACING_SCALE[v.facingFrom ?? v.facing];
+  if (from === to) return to;
+  return from + (to - from) * easeSine(v.turnK ?? 1);
+}
+
+/** Face visibility (0..1) — fades out at edge-on moments of a turn */
+function faceVisibility(bodyScale: number, v: CastVisual): number {
+  const turningToBack = v.facing === 'back' || v.facingFrom === 'back';
+  if (turningToBack && (v.turnK ?? 1) >= 0.999 && v.facing === 'back') return 0;
+  if (!turningToBack) return 1;
+  return Math.max(0, Math.min(1, (Math.abs(bodyScale) - 0.3) / 0.24));
+}
+
+/** 3/4 head-turn amount (0..1) implied by the current facing pivot */
+function faceYaw(v: CastVisual): number {
+  const side = (f?: Facing) => (f === 'left' || f === 'right' ? 1 : 0);
+  const from = side(v.facingFrom ?? v.facing);
+  const to = side(v.facing);
+  if (from === to) return to;
+  return from + (to - from) * easeSine(v.turnK ?? 1);
+}
+
 export type FxKind =
   | 'hearts'
   | 'sparkles'
@@ -66,6 +108,14 @@ export interface CastVisual {
   /** gaze offset toward a point of interest, in head-radius units */
   gazeDx?: number;
   gazeDy?: number;
+  /** orientation on stage (humans) — resolved by the director */
+  facing?: Facing;
+  /** previous facing while pivoting (for the turn-around animation) */
+  facingFrom?: Facing;
+  /** 0..1 progress of the current pivot (1 = settled) */
+  turnK?: number;
+  /** horizontal bias for the speech bubble (keeps it off the interaction partner) */
+  bubbleDx?: number;
 }
 
 export interface FrameState {
@@ -200,7 +250,8 @@ function drawBubble(
   headX: number,
   headTopY: number,
   speakerName: string,
-  text: string
+  text: string,
+  biasDx = 0
 ): void {
   ctx.save();
   ctx.font = canvasFont(500, 26);
@@ -214,7 +265,7 @@ function drawBubble(
     Math.max(...lines.map((l) => ctx.measureText(l).width)) + padX * 2
   );
   const bh = nameH + lines.length * lineH + 20;
-  let bx = headX - bw / 2;
+  let bx = headX + biasDx - bw / 2;
   bx = Math.max(14, Math.min(CANVAS_W - bw - 14, bx));
   let by = headTopY - bh - 26;
   if (by < 14) by = 14;
@@ -552,24 +603,40 @@ export function drawFrame(
         }
       } else {
         const s = v.drawH / 768;
-        const img = ch ? getCachedImage(lookKey(ch.look, v.pose ?? 'idle')) : undefined;
-        ctx.scale(v.scaleX ?? 1, v.scaleY ?? 1);
+        const w = SPRITE_W * s;
+        // orientation: cartoon pivot (body squash-through), sprite view + face fade
+        const bodyScale = facingBodyScale(v);
+        const k = Math.max(0, Math.min(1, v.turnK ?? 1));
+        const toBack = v.facing === 'back';
+        const fromBack = v.facingFrom === 'back' && !toBack;
+        const useBack = (toBack && k >= 0.5) || (fromBack && k < 0.5);
+        ctx.scale((v.scaleX ?? 1) * bodyScale, v.scaleY ?? 1);
+        let img = ch
+          ? getCachedImage(lookKey(ch.look, v.pose ?? 'idle', useBack ? 'back' : 'front'))
+          : undefined;
+        if (!img && useBack && ch) {
+          // back sprite not rasterized yet — fall back to the front view
+          img = getCachedImage(lookKey(ch.look, v.pose ?? 'idle', 'front'));
+        }
         if (img) {
-          const w = SPRITE_W * s;
           ctx.drawImage(img, -w / 2, -v.drawH, w, v.drawH);
         } else {
           placeholderSprite(ctx, v.drawH);
         }
         const talk = v.characterId === fs.speakingCharacterId ? fs.talkOpen : 0;
-        if (ch) {
-          const s = v.drawH / 768;
+        const faceVis = ch ? faceVisibility(bodyScale, v) : 0;
+        if (ch && faceVis > 0.02) {
+          ctx.save();
+          ctx.globalAlpha *= faceVis;
           drawFace(ctx, 0, -v.drawH + faceAnchor(ch.look).cy * s, s, {
             emotion: v.emotion,
             talkOpen: talk,
             look: ch.look,
             blinkOpen: blinkOpenAt(v.castId, fs.tMs),
             gaze: { dx: v.gazeDx ?? 0, dy: v.gazeDy ?? 0 },
+            yaw: faceYaw(v),
           });
+          ctx.restore();
         }
       }
       ctx.restore();
@@ -589,7 +656,7 @@ export function drawFrame(
     const ch = fs.beatCharacterId ? fs.characters[fs.beatCharacterId] : undefined;
     if (v && ch && v.visible) {
       const headTopY = v.footY - v.drawH * (isAnimal(ch) ? 0.55 : 0.82);
-      drawBubble(ctx, v.x, headTopY, ch.name, fs.beatText);
+      drawBubble(ctx, v.x, headTopY, ch.name, fs.beatText, v.bubbleDx ?? 0);
     }
   }
 
@@ -617,9 +684,20 @@ export function drawStaticFrame(
     if (ch && isAnimal(ch)) {
       return { ...v, drawH: animalDrawH(ch, v.position), flip: v.position === 'right' };
     }
-    return opts?.emotionOverride && v.characterId === opts.beatCharacterId
-      ? { ...v, emotion: opts.emotionOverride }
-      : v;
+    // in the editor, side characters face the middle of the stage
+    const facing: Facing | undefined =
+      shot.cast.length > 1
+        ? v.position === 'left'
+          ? 'right'
+          : v.position === 'right'
+            ? 'left'
+            : 'front'
+        : 'front';
+    const withEmotion =
+      opts?.emotionOverride && v.characterId === opts.beatCharacterId
+        ? { ...v, emotion: opts.emotionOverride }
+        : v;
+    return { ...withEmotion, facing, facingFrom: facing, turnK: 1 };
   });
   drawFrame(ctx, {
     shot,

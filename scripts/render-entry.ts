@@ -9,7 +9,7 @@ import { buildMaxRexProject, STORY_CHARACTERS } from '@/lib/story-max-rex';
 import { buildTimeline, frameStateAt, type Timeline } from '@/lib/engine/director';
 import { drawFrame } from '@/lib/engine/renderer';
 import { ensureUniqueVoices } from '@/lib/engine/voice';
-import { buildCharacterSvg, lookKey, POSE_FOR_ACTION, type Pose } from '@/lib/character-svg';
+import { buildCharacterSvg, buildCharacterBackSvg, lookKey, POSE_FOR_ACTION, type Pose } from '@/lib/character-svg';
 import { buildAnimalSvg, animalKey, variantForAction, type AnimalVariant } from '@/lib/animals';
 import { getBackground } from '@/lib/backgrounds';
 import { bgKey, injectCachedImage } from '@/lib/engine/images';
@@ -63,6 +63,8 @@ async function preload(): Promise<void> {
     } else {
       for (const p of poses) {
         tasks.push(ensureImage(lookKey(ch.look, p), buildCharacterSvg(ch.look, p)));
+        // back view for turn-aways / walk-offs
+        tasks.push(ensureImage(lookKey(ch.look, p, 'back'), buildCharacterBackSvg(ch.look, p)));
       }
     }
   }

@@ -1,14 +1,17 @@
 /**
- * StoryForge offline video renderer.
+ * StoryForge offline video renderer (resumable).
  * Deterministically renders the "Max & Rex" story with the app's own engine
  * (frame-stepped at 30 fps via headless Chromium), mixes neural voice lines +
  * music bed with ffmpeg, and produces a shareable MP4.
  *
- * Run:  bun scripts/render_video.ts
+ * Phases (resumable across runs — frames are cached on disk):
+ *   bun scripts/render_video.ts frames   → renders JPEG frames to models/render/frames
+ *   bun scripts/render_video.ts assemble → ffmpeg: frames + voices + music → MP4
+ *   bun scripts/render_video.ts all      → both phases
  */
 
 import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync, unlinkSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 
@@ -19,6 +22,7 @@ import type { Character } from '../src/lib/types';
 
 const ROOT = '/home/z/my-project';
 const WORK = join(ROOT, 'models', 'render');
+const FRAMES = join(WORK, 'frames');
 const OUT = join(ROOT, 'download', 'max-and-rex-story.mp4');
 const TTS_URL = 'http://127.0.0.1:8777/tts';
 const FPS = 30;
@@ -60,8 +64,15 @@ async function synthLine(text: string, voiceId: string, speed: number, pitch: nu
   writeFileSync(dest, buf);
 }
 
-async function main() {
+interface RenderInfo {
+  timeline: ReturnType<typeof buildTimeline>;
+  voiceFiles: Record<string, string>;
+  totalFrames: number;
+}
+
+async function prepare(): Promise<RenderInfo> {
   mkdirSync(WORK, { recursive: true });
+  mkdirSync(FRAMES, { recursive: true });
 
   // 1) timeline v1 (estimates) → cue list
   const project = buildMaxRexProject();
@@ -104,8 +115,21 @@ async function main() {
     });
   }
 
-  // 5) bundle the renderer and launch headless chromium
-  console.log('bundling renderer…');
+  const totalFrames = Math.ceil((timeline.totalMs / 1000) * FPS);
+  return { timeline, voiceFiles, totalFrames };
+}
+
+async function renderFrames(): Promise<void> {
+  const { timeline, totalFrames } = await prepare();
+  const frameStepMs = 1000 / FPS;
+  const done = readdirSync(FRAMES).filter((f) => f.endsWith('.jpg')).length;
+  if (done >= totalFrames) {
+    console.log(`frames already complete: ${done}/${totalFrames}`);
+    return;
+  }
+  console.log(`rendering frames ${done}/${totalFrames}…`);
+
+  // bundle the renderer and launch headless chromium
   const bunBuild = spawn('bun', [
     'build', join(ROOT, 'scripts', 'render-entry.ts'),
     '--format=iife', '--target=browser',
@@ -127,18 +151,48 @@ async function main() {
   await page.setContent('<!doctype html><html><body></body></html>');
   await page.addScriptTag({ content: bundleJs });
 
-  const info = await page.evaluate(async (durs) => {
+  await page.evaluate(async (durs) => {
     return await (window as unknown as { __sfRender: { init: (d: Record<string, number>) => Promise<{ totalMs: number; cues: unknown[] }> } }).__sfRender.init(durs);
-  }, durations);
-  console.log(`render frames: ${Math.ceil(info.totalMs / 1000 * FPS)} @ ${FPS}fps, audio cues: ${info.cues.length}`);
+  }, timeline.beats.reduce((m, b) => {
+    m[b.beatId] = b.audioDurMs;
+    return m;
+  }, {} as Record<string, number>));
 
-  // 6) frame-stepped capture → ffmpeg (mjpeg pipe)
-  const totalFrames = Math.ceil((info.totalMs / 1000) * FPS);
-  const frameStepMs = 1000 / FPS;
+  const CHUNK = 6;
+  for (let start = 0; start < totalFrames; start += CHUNK) {
+    const jobs: Array<{ i: number; dataUrl: string }> = [];
+    for (let i = start; i < Math.min(totalFrames, start + CHUNK); i++) {
+      const name = join(FRAMES, `${String(i).padStart(6, '0')}.jpg`);
+      if (existsSync(name)) continue;
+      const dataUrl = await page.evaluate((tt) => {
+        const w = window as unknown as { __sfRender: { frame: (t: number) => void } };
+        w.__sfRender.frame(tt);
+        const cv = document.querySelector('canvas') as HTMLCanvasElement;
+        return cv.toDataURL('image/jpeg', 0.9);
+      }, i * frameStepMs);
+      jobs.push({ i, dataUrl });
+    }
+    for (const j of jobs) {
+      const b64 = j.dataUrl.slice(j.dataUrl.indexOf(',') + 1);
+      writeFileSync(join(FRAMES, `${String(j.i).padStart(6, '0')}.jpg`), Buffer.from(b64, 'base64'));
+    }
+    if (start % 300 === 0) {
+      const have = readdirSync(FRAMES).filter((f) => f.endsWith('.jpg')).length;
+      console.log(`  frames ${have}/${totalFrames} (${((have / totalFrames) * 100).toFixed(0)}%)`);
+    }
+  }
+  await browser.close();
+  try { unlinkSync(join(WORK, 'render-bundle.js')); } catch { /* noop */ }
+  console.log('frames done');
+}
+
+async function assemble(): Promise<void> {
+  const { timeline, voiceFiles, totalFrames } = await prepare();
+
   const inputs: string[] = [
     '-y', '-loglevel', 'error',
-    '-f', 'image2pipe', '-framerate', String(FPS), '-i', '-',
-    '-i', musicPath,
+    '-framerate', String(FPS), '-i', join(FRAMES, '%06d.jpg'),
+    '-i', join(WORK, 'music.wav'),
   ];
   for (const c of timeline.audio) inputs.push('-i', voiceFiles[c.beatId]);
 
@@ -159,52 +213,26 @@ async function main() {
     '-r', String(FPS),
     '-c:a', 'aac', '-b:a', '192k',
     '-movflags', '+faststart',
-    '-t', String((info.totalMs / 1000) + 0.4),
+    '-frames:v', String(totalFrames),
     OUT,
   ];
 
-  const ff = spawn('ffmpeg', ffArgs, { stdio: ['pipe', 'inherit', 'inherit'] });
-  let framesSent = 0;
-  const CHUNK = 6;
-
-  for (let start = 0; start < totalFrames; start += CHUNK) {
-    const frames = [] as string[];
-    for (let i = start; i < Math.min(totalFrames, start + CHUNK); i++) {
-       
-      const dataUrl = await page.evaluate((tt) => {
-        const w = window as unknown as { __sfRender: { frame: (t: number) => void } };
-        w.__sfRender.frame(tt);
-        const cv = document.querySelector('canvas') as HTMLCanvasElement;
-        return cv.toDataURL('image/jpeg', 0.9);
-      }, i * frameStepMs);
-      frames.push(dataUrl);
-    }
-    for (const d of frames) {
-      const b64 = d.slice(d.indexOf(',') + 1);
-      const buf = Buffer.from(b64, 'base64');
-      if (!ff.stdin.write(buf)) {
-        await new Promise<void>((r) => ff.stdin.once('drain', r));
-      }
-      framesSent++;
-    }
-    if (start % 300 === 0) {
-      console.log(`  frames ${framesSent}/${totalFrames} (${((framesSent / totalFrames) * 100).toFixed(0)}%)`);
-    }
-  }
-  ff.stdin.end();
+  const ff = spawn('ffmpeg', ffArgs, { stdio: ['ignore', 'inherit', 'inherit'] });
   await new Promise<void>((res, rej) => {
     ff.on('close', (c) => (c === 0 ? res() : rej(new Error(`ffmpeg exited ${c}`))));
   });
-  await browser.close();
-
-  // cleanup bundle to keep the repo tidy
-  try { unlinkSync(join(WORK, 'render-bundle.js')); } catch { /* noop */ }
 
   const dur = await ffprobeDuration(OUT);
   console.log(`DONE: ${OUT} (${dur.toFixed(1)}s)`);
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+const phase = process.argv[2] ?? 'all';
+if (phase === 'frames') {
+  renderFrames().catch((e) => { console.error(e); process.exit(1); });
+} else if (phase === 'assemble') {
+  assemble().catch((e) => { console.error(e); process.exit(1); });
+} else {
+  renderFrames()
+    .then(assemble)
+    .catch((e) => { console.error(e); process.exit(1); });
+}
