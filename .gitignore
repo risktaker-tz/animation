@@ -57,3 +57,5 @@ server.log
 db/
 download/
 agent-ctx/
+# local neural TTS model + render workspace (large binaries)
+models/

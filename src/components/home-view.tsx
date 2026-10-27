@@ -45,7 +45,7 @@ import type { Character, Project } from '@/lib/types';
 
 interface ExportBundle {
   kind: 'storyforge-project';
-  version: 1;
+  version: number;
   project: Project;
   characters: Character[];
 }

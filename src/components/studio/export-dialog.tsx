@@ -17,6 +17,7 @@ import { MusicEngine } from '@/lib/engine/music';
 import { StoryPlayer } from '@/lib/engine/player';
 import { VideoRecorder, downloadBlob, recorderSupported, safeFileName } from '@/lib/engine/recorder';
 import { preloadProjectAssets } from '@/lib/engine/images';
+import { getMasterAudio, resumeMasterAudio } from '@/lib/engine/voice';
 
 type Phase = 'idle' | 'preparing' | 'recording';
 
@@ -70,12 +71,16 @@ export function ExportDialog({
       await preloadProjectAssets(project, characters);
       if (cancelRef.current) return;
 
+      // route every sound (neural voices, music, SFX) into one recorder stream
+      resumeMasterAudio();
+      const graph = getMasterAudio();
+
       const recorder = new VideoRecorder(canvas);
-      let audioStream: MediaStream | null = null;
+      const audioStream = graph.streamDest?.stream ?? null;
       if (musicEnabled) {
         try {
           musicRef.current = new MusicEngine();
-          audioStream = musicRef.current.start();
+          musicRef.current.start();
         } catch {
           musicRef.current = null;
         }
@@ -83,7 +88,7 @@ export function ExportDialog({
       recorder.start(audioStream);
       setPhase('recording');
 
-      const player = new StoryPlayer(canvas, project, characters, { ttsEnabled }, {
+      const player = new StoryPlayer(canvas, project, characters, { ttsEnabled, musicEnabled: false }, {
         onState: () => undefined,
         onEnd: () => undefined,
       });
@@ -99,7 +104,7 @@ export function ExportDialog({
         downloadBlob(blob, `${safeFileName(project.name)}.webm`);
         toast({
           title: 'Video exported',
-          description: `${project.name}.webm saved to your downloads.`,
+          description: `${project.name}.webm saved — picture, voices and score included.`,
         });
       }
     } catch (e) {
@@ -174,10 +179,9 @@ export function ExportDialog({
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold">Record video (.webm)</p>
                 <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  Plays the whole story once and records the picture with its
-                  musical score and burned-in captions. Browser voices play aloud
-                  live but cannot be embedded by browsers — for a voice track,
-                  screen-record with audio.
+                  Plays the whole story once and records the picture together with
+                  the neural voices, score and sound effects — burned-in captions
+                  included. The file downloads straight from your browser.
                 </p>
               </div>
             </div>

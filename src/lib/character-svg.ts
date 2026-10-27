@@ -1,18 +1,206 @@
-import type { CharacterLook } from '@/lib/types';
+import type { BeatAction, CharacterLook } from '@/lib/types';
 
-// Sprite geometry (shared with the canvas face renderer)
+// ---------------------------------------------------------------------------
+// StoryForge silhouette character system v2
+// Cinematic "silhouette-inspired" look: near-black duotone figures with a
+// colored rim light, subtle luminous facial features, realistic proportions.
+// ---------------------------------------------------------------------------
+
 export const SPRITE_W = 512;
 export const SPRITE_H = 768;
-export const HEAD_CX = 256;
-export const HEAD_CY = 150;
-export const HEAD_RX = 78;
-export const HEAD_RY = 86;
 
 /** Height (px) a character occupies when drawn on the 1280x720 canvas */
 export const DRAW_H = 440;
-export const SPRITE_SCALE = DRAW_H / SPRITE_H; // ≈ 0.573
 
-const INK = 'rgba(0,0,0,0.16)';
+export interface FaceAnchor {
+  cx: number;
+  cy: number;
+  rx: number;
+  ry: number;
+}
+
+interface Geometry {
+  head: FaceAnchor;
+  chinY: number;
+  neckTopY: number;
+  neckW: number;
+  shoulderY: number;
+  shoulderLX: number;
+  shoulderRX: number;
+  waistY: number;
+  hipY: number;
+  hipHalfW: number;
+  legTopY: number;
+  footY: number;
+  armW: number;
+  torsoHalfW: number;
+}
+
+/** Figure geometry for adults vs children (children keep realistic ratios) */
+export function geometry(look: CharacterLook): Geometry {
+  if (look.age === 'child') {
+    return {
+      head: { cx: 256, cy: 212, rx: 55, ry: 64 },
+      chinY: 278,
+      neckTopY: 272,
+      neckW: 24,
+      shoulderY: 306,
+      shoulderLX: 196,
+      shoulderRX: 316,
+      waistY: 428,
+      hipY: 452,
+      hipHalfW: 52,
+      legTopY: 452,
+      footY: 762,
+      armW: 19,
+      torsoHalfW: 58,
+    };
+  }
+  return {
+    head: { cx: 256, cy: 96, rx: 52, ry: 62 },
+    chinY: 158,
+    neckTopY: 150,
+    neckW: 27,
+    shoulderY: 196,
+    shoulderLX: 180,
+    shoulderRX: 332,
+    waistY: 352,
+    hipY: 402,
+    hipHalfW: 58,
+    legTopY: 402,
+    footY: 764,
+    armW: 22,
+    torsoHalfW: 66,
+  };
+}
+
+export function faceAnchor(look: CharacterLook): FaceAnchor {
+  return geometry(look).head;
+}
+
+// ---------------------------------------------------------------- poses
+
+export type Pose =
+  | 'idle'
+  | 'wave'
+  | 'point'
+  | 'hips'
+  | 'think'
+  | 'write'
+  | 'read'
+  | 'phone'
+  | 'sit'
+  | 'sad'
+  | 'cheer'
+  | 'hug'
+  | 'highfive'
+  | 'give'
+  | 'whisper'
+  | 'pet'
+  | 'sneak'
+  | 'facepalm'
+  | 'salute'
+  | 'clap'
+  | 'shrug'
+  | 'dance'
+  | 'cry'
+  | 'shock'
+  | 'run';
+
+export const POSE_FOR_ACTION: Partial<Record<BeatAction, Pose>> = {
+  wave: 'wave',
+  point: 'point',
+  think: 'think',
+  cheer: 'cheer',
+  sulk: 'sad',
+  laugh: 'clap',
+  cry: 'cry',
+  gasp: 'shock',
+  dance: 'dance',
+  sit: 'sit',
+  write: 'write',
+  read: 'read',
+  phone: 'phone',
+  sneak: 'sneak',
+  run: 'run',
+  facepalm: 'facepalm',
+  salute: 'salute',
+  clap: 'clap',
+  shrug: 'shrug',
+  hug: 'hug',
+  highfive: 'highfive',
+  give: 'give',
+  whisper: 'whisper',
+  pet: 'pet',
+  fetch: 'point',
+  jump: 'cheer',
+};
+
+interface ArmPose {
+  elbow: [number, number];
+  hand: [number, number];
+}
+
+/** Arm target points for the left arm (screen-left); mirrored for right */
+function leftArm(pose: Pose, g: Geometry): ArmPose {
+  const sy = g.shoulderY + 8;
+  const sx = g.shoulderLX + 4;
+  switch (pose) {
+    case 'wave':
+    case 'highfive':
+      return { elbow: [sx - 10, sy - 30], hand: [sx - 6, g.head.cy - 34] };
+    case 'cheer':
+      return { elbow: [sx - 4, sy - 50], hand: [sx - 18, g.head.cy - 52] };
+    case 'point':
+      return { elbow: [sx + 8, sy + 40], hand: [sx + 44, sy + 62] };
+    case 'hips':
+      return { elbow: [sx - 26, sy + 70], hand: [sx + 36, g.hipY - 14] };
+    case 'think':
+      return { elbow: [sx - 18, sy + 60], hand: [sx + 62, g.chinY - 8] };
+    case 'write':
+    case 'read':
+    case 'give':
+    case 'clap':
+      return { elbow: [sx - 4, sy + 62], hand: [sx + 56, sy + 116] };
+    case 'phone':
+      return { elbow: [sx - 20, sy + 66], hand: [sx + 26, sy + 118] };
+    case 'sit':
+      return { elbow: [sx - 16, sy + 58], hand: [sx + 30, g.hipY - 8] };
+    case 'sad':
+    case 'cry':
+      return { elbow: [sx - 2, sy + 58], hand: [sx + 22, sy + 150] };
+    case 'hug':
+      return { elbow: [sx - 2, sy + 52], hand: [sx + 66, sy + 108] };
+    case 'whisper':
+      return { elbow: [sx - 4, sy + 30], hand: [sx + 58, g.head.cy + 14] };
+    case 'pet':
+      return { elbow: [sx + 10, sy + 60], hand: [sx + 52, sy + 150] };
+    case 'sneak':
+      return { elbow: [sx - 20, sy + 50], hand: [sx - 8, sy + 96] };
+    case 'facepalm':
+      return { elbow: [sx + 6, sy + 44], hand: [sx + 52, g.head.cy - 4] };
+    case 'salute':
+      return { elbow: [sx - 6, sy + 40], hand: [sx + 46, g.head.cy - 30] };
+    case 'shrug':
+      return { elbow: [sx - 22, sy + 30], hand: [sx - 6, sy + 40] };
+    case 'dance':
+      return { elbow: [sx - 10, sy - 34], hand: [sx - 14, g.head.cy - 44] };
+    case 'shock':
+      return { elbow: [sx - 2, sy + 36], hand: [sx + 42, g.head.cy + 16] };
+    case 'run':
+      return { elbow: [sx - 26, sy + 40], hand: [sx + 10, sy + 84] };
+    case 'idle':
+    default:
+      return { elbow: [sx - 14, sy + 90], hand: [sx - 4, sy + 178] };
+  }
+}
+
+function mirror(p: ArmPose, g: Geometry): ArmPose {
+  const mx = (x: number) => 512 - x;
+  return { elbow: [mx(p.elbow[0]), p.elbow[1]], hand: [mx(p.hand[0]), p.hand[1]] };
+}
+
+// ---------------------------------------------------------------- helpers
 
 function shade(hex: string, amt: number): string {
   const n = hex.replace('#', '');
@@ -23,167 +211,209 @@ function shade(hex: string, amt: number): string {
   return `rgb(${r},${g},${b})`;
 }
 
-function hairBack(l: CharacterLook): string {
-  const c = l.hairColor;
-  const dark = shade(c, -24);
-  switch (l.hair) {
+const BODY_TOP = '#2A2E3C';
+const BODY_BOT = '#101219';
+const CLOTH_DIM = -62;
+const PANTS_DIM = -54;
+const HAIR_DIM = -30;
+
+function headPath(h: FaceAnchor): string {
+  const { cx, cy, rx, ry } = h;
+  const top = cy - ry;
+  return [
+    `M ${cx} ${top}`,
+    `C ${cx + rx * 0.86} ${top + 4} ${cx + rx} ${cy - ry * 0.36} ${cx + rx} ${cy + ry * 0.08}`,
+    `C ${cx + rx} ${cy + ry * 0.55} ${cx + rx * 0.6} ${cy + ry} ${cx} ${cy + ry}`,
+    `C ${cx - rx * 0.6} ${cy + ry} ${cx - rx} ${cy + ry * 0.55} ${cx - rx} ${cy + ry * 0.08}`,
+    `C ${cx - rx} ${cy - ry * 0.36} ${cx - rx * 0.86} ${top + 4} ${cx} ${top} Z`,
+  ].join(' ');
+}
+
+function hairShapes(look: CharacterLook, g: Geometry): string {
+  const c = shade(look.hairColor, HAIR_DIM);
+  const h = g.head;
+  const cap = `
+    <path d="M ${h.cx - h.rx - 6} ${h.cy + h.ry * 0.1}
+             C ${h.cx - h.rx - 8} ${h.cy - h.ry * 1.06} ${h.cx + h.rx + 8} ${h.cy - h.ry * 1.06} ${h.cx + h.rx + 6} ${h.cy + h.ry * 0.1}
+             C ${h.cx + h.rx * 0.5} ${h.cy - h.ry * 0.5} ${h.cx - h.rx * 0.5} ${h.cy - h.ry * 0.5} ${h.cx - h.rx - 6} ${h.cy + h.ry * 0.1} Z"
+          fill="${c}"/>`;
+  const back = (extra: string) => `<g>${cap}${extra}</g>`;
+  switch (look.hair) {
     case 'long':
-      return `
-        <rect x="160" y="112" width="44" height="200" rx="20" fill="${c}"/>
-        <rect x="308" y="112" width="44" height="200" rx="20" fill="${c}"/>
-        <ellipse cx="256" cy="120" rx="88" ry="74" fill="${c}"/>`;
+      return back(`
+        <path d="M ${h.cx - h.rx - 8} ${h.cy - 10} C ${h.cx - h.rx - 18} ${g.chinY + 120} ${h.cx - h.rx - 4} ${g.chinY + 168} ${h.cx - h.rx + 14} ${g.chinY + 178}
+                 L ${h.cx - h.rx + 30} ${g.chinY + 60} C ${h.cx - h.rx + 16} ${g.chinY + 6} ${h.cx - h.rx + 12} ${h.cy} ${h.cx - h.rx - 8} ${h.cy - 10} Z" fill="${c}"/>
+        <path d="M ${h.cx + h.rx + 8} ${h.cy - 10} C ${h.cx + h.rx + 18} ${g.chinY + 120} ${h.cx + h.rx + 4} ${g.chinY + 168} ${h.cx + h.rx - 14} ${g.chinY + 178}
+                 L ${h.cx + h.rx - 30} ${g.chinY + 60} C ${h.cx + h.rx - 16} ${g.chinY + 6} ${h.cx + h.rx - 12} ${h.cy} ${h.cx + h.rx + 8} ${h.cy - 10} Z" fill="${c}"/>`);
     case 'wavy':
-      return `
-        <ellipse cx="256" cy="120" rx="88" ry="74" fill="${c}"/>
-        <path d="M164 130 q-16 90 8 170 q16 40 44 34 q-20 -100 -4 -190 Z" fill="${c}"/>
-        <path d="M348 130 q16 90 -8 170 q-16 40 -44 34 q20 -100 4 -190 Z" fill="${c}"/>
-        <circle cx="204" cy="330" r="20" fill="${dark}"/>
-        <circle cx="308" cy="330" r="20" fill="${dark}"/>`;
+      return back(`
+        <path d="M ${h.cx - h.rx - 6} ${h.cy} C ${h.cx - h.rx - 22} ${g.chinY + 90} ${h.cx - h.rx + 2} ${g.chinY + 130} ${h.cx - h.rx + 22} ${g.chinY + 140}
+                 C ${h.cx - h.rx + 6} ${g.chinY + 70} ${h.cx - h.rx + 6} ${g.chinY + 20} ${h.cx - h.rx - 6} ${h.cy} Z" fill="${c}"/>
+        <path d="M ${h.cx + h.rx + 6} ${h.cy} C ${h.cx + h.rx + 22} ${g.chinY + 90} ${h.cx + h.rx - 2} ${g.chinY + 130} ${h.cx + h.rx - 22} ${g.chinY + 140}
+                 C ${h.cx + h.rx - 6} ${g.chinY + 70} ${h.cx + h.rx - 6} ${g.chinY + 20} ${h.cx + h.rx + 6} ${h.cy} Z" fill="${c}"/>`);
     case 'ponytail':
-      return `
-        <ellipse cx="256" cy="120" rx="88" ry="74" fill="${c}"/>
-        <circle cx="344" cy="168" r="28" fill="${dark}"/>
-        <path d="M346 186 Q400 240 386 340 Q378 376 346 366 Q372 270 330 216 Z" fill="${c}"/>`;
+      return back(`
+        <circle cx="${h.cx + h.rx + 16}" cy="${h.cy - 4}" r="17" fill="${shade(look.hairColor, HAIR_DIM - 18)}"/>
+        <path d="M ${h.cx + h.rx + 16} ${h.cy + 10} C ${h.cx + h.rx + 44} ${g.chinY + 40} ${h.cx + h.rx + 30} ${g.chinY + 120} ${h.cx + h.rx + 8} ${g.chinY + 150}
+                 C ${h.cx + h.rx + 2} ${g.chinY + 90} ${h.cx + h.rx + 2} ${g.chinY + 30} ${h.cx + h.rx + 6} ${h.cy + 16} Z" fill="${c}"/>`);
     case 'bun':
-      return `
-        <ellipse cx="256" cy="120" rx="88" ry="74" fill="${c}"/>
-        <circle cx="256" cy="46" r="36" fill="${c}"/>
-        <circle cx="256" cy="46" r="36" fill="none" stroke="${dark}" stroke-width="4"/>`;
+      return back(`<circle cx="${h.cx}" cy="${h.cy - h.ry - 14}" r="24" fill="${c}"/>`);
     case 'curly':
-      return `
-        <ellipse cx="256" cy="118" rx="86" ry="70" fill="${c}"/>
-        <circle cx="182" cy="92" r="28" fill="${c}"/><circle cx="224" cy="66" r="30" fill="${c}"/>
-        <circle cx="288" cy="66" r="30" fill="${c}"/><circle cx="330" cy="92" r="28" fill="${c}"/>
-        <circle cx="170" cy="136" r="24" fill="${dark}"/><circle cx="342" cy="136" r="24" fill="${dark}"/>`;
+      return back(`
+        <circle cx="${h.cx - h.rx + 2}" cy="${h.cy - h.ry * 0.55}" r="20" fill="${c}"/>
+        <circle cx="${h.cx - h.rx * 0.45}" cy="${h.cy - h.ry - 10}" r="22" fill="${c}"/>
+        <circle cx="${h.cx + h.rx * 0.45}" cy="${h.cy - h.ry - 10}" r="22" fill="${c}"/>
+        <circle cx="${h.cx + h.rx - 2}" cy="${h.cy - h.ry * 0.55}" r="20" fill="${c}"/>`);
     case 'spiky':
-      return `
-        <path d="M168 122 L194 56 L226 100 L256 42 L288 100 L320 56 L346 122 Q256 56 168 122 Z" fill="${c}"/>
-        <ellipse cx="256" cy="116" rx="84" ry="66" fill="${c}"/>`;
+      return back(`
+        <path d="M ${h.cx - h.rx - 2} ${h.cy - 6} L ${h.cx - h.rx * 0.6} ${h.cy - h.ry - 20} L ${h.cx - h.rx * 0.2} ${h.cy - h.ry * 0.7}
+                 L ${h.cx} ${h.cy - h.ry - 26} L ${h.cx + h.rx * 0.25} ${h.cy - h.ry * 0.7} L ${h.cx + h.rx * 0.62} ${h.cy - h.ry - 18} L ${h.cx + h.rx + 2} ${h.cy - 6} Z" fill="${c}"/>`);
     case 'buzz':
-      return `<ellipse cx="256" cy="112" rx="82" ry="58" fill="${c}" opacity="0.9"/>`;
+      return back(`
+        <path d="M ${h.cx - h.rx - 2} ${h.cy + h.ry * 0.05}
+                 C ${h.cx - h.rx - 2} ${h.cy - h.ry - 12} ${h.cx + h.rx + 2} ${h.cy - h.ry - 12} ${h.cx + h.rx + 2} ${h.cy + h.ry * 0.05}
+                 C ${h.cx + h.rx * 0.5} ${h.cy - h.ry * 0.42} ${h.cx - h.rx * 0.5} ${h.cy - h.ry * 0.42} ${h.cx - h.rx - 2} ${h.cy + h.ry * 0.05} Z"
+              fill="${c}" opacity="0.92"/>`);
     case 'short':
     default:
-      return `<ellipse cx="256" cy="118" rx="86" ry="70" fill="${c}"/>`;
+      return back('');
   }
 }
 
-function hairFront(l: CharacterLook): string {
-  const c = l.hairColor;
-  if (l.hair === 'buzz') return '';
-  return `<path d="M176 124 Q256 62 336 124 Q318 84 256 80 Q194 84 176 124 Z" fill="${shade(c, 16)}"/>`;
-}
-
-function outfitLayer(l: CharacterLook): { torso: string; sleeve: string } {
-  const c = l.outfitColor;
-  const dark = shade(c, -22);
-  switch (l.outfit) {
+function outfitTorso(look: CharacterLook, g: Geometry): string {
+  const c = shade(look.outfitColor, CLOTH_DIM);
+  const c2 = shade(look.outfitColor, CLOTH_DIM + 26);
+  const { shoulderLX: lx, shoulderRX: rx2, shoulderY: sy, hipY, torsoHalfW: tw } = g;
+  const base = `M ${lx} ${sy} Q 256 ${sy - 22} ${rx2} ${sy} L ${256 + tw} ${hipY - 6} Q 256 ${hipY + 10} ${256 - tw} ${hipY - 6} Z`;
+  switch (look.outfit) {
     case 'hoodie':
-      return {
-        torso: `
-          <path d="M196 252 Q256 232 316 252 Q340 262 336 292 L336 296 Q256 274 176 296 L176 292 Q172 262 196 252 Z" fill="${dark}"/>
-          <path d="M176 272 Q256 250 336 272 L352 470 Q256 488 160 470 Z" fill="${c}"/>
-          <rect x="206" y="392" width="100" height="56" rx="12" fill="${dark}"/>
-          <path d="M244 286 L240 330 M268 286 L272 330" stroke="#F2EFE8" stroke-width="6" stroke-linecap="round"/>`,
-        sleeve: c,
-      };
+      return `
+        <path d="${base}" fill="${c}"/>
+        <path d="M 236 ${sy + 6} Q 256 ${sy + 2} 276 ${sy + 6} L 272 ${sy + 64} L 240 ${sy + 64} Z" fill="${c2}"/>
+        <path d="M ${lx} ${sy} Q 256 ${sy - 40} ${rx2} ${sy} L ${rx2 - 6} ${sy + 26} Q 256 ${sy + 2} ${lx + 6} ${sy + 26} Z" fill="${shade(look.outfitColor, CLOTH_DIM + 14)}"/>`;
     case 'blazer':
-      return {
-        torso: `
-          <path d="M176 272 Q256 250 336 272 L352 470 Q256 488 160 470 Z" fill="#F2EFE8"/>
-          <path d="M176 268 L232 268 L216 470 L162 466 Z" fill="${c}"/>
-          <path d="M336 268 L280 268 L296 470 L350 466 Z" fill="${c}"/>
-          <path d="M232 268 L256 330 L244 268 Z" fill="#FFFFFF"/>
-          <path d="M280 268 L256 330 L268 268 Z" fill="#FFFFFF"/>`,
-        sleeve: c,
-      };
+      return `
+        <path d="M ${lx} ${sy} Q 256 ${sy - 22} ${rx2} ${sy} L ${256 + tw} ${hipY - 6} Q 256 ${hipY + 10} ${256 - tw} ${hipY - 6} Z" fill="${shade('#E8E4DC', CLOTH_DIM + 60)}"/>
+        <path d="M ${lx} ${sy} L ${256 - 10} ${sy + 6} L ${256 - 26} ${hipY} L ${256 - tw} ${hipY - 6} Z" fill="${c}"/>
+        <path d="M ${rx2} ${sy} L ${256 + 10} ${sy + 6} L ${256 + 26} ${hipY} L ${256 + tw} ${hipY - 6} Z" fill="${c}"/>`;
     case 'dress':
-      return {
-        torso: `
-          <path d="M184 268 Q256 246 328 268 L378 556 Q256 576 134 556 Z" fill="${c}"/>
-          <path d="M184 268 Q256 246 328 268 L332 292 Q256 272 180 292 Z" fill="${dark}"/>`,
-        sleeve: l.skin,
-      };
+      return `
+        <path d="M ${lx + 6} ${sy} Q 256 ${sy - 20} ${rx2 - 6} ${sy} L ${256 + tw + 26} ${hipY + 120} Q 256 ${hipY + 142} ${256 - tw - 26} ${hipY + 120} Z" fill="${c}"/>
+        <path d="M ${lx + 6} ${sy} Q 256 ${sy - 20} ${rx2 - 6} ${sy} L ${rx2 - 10} ${sy + 24} Q 256 ${sy + 4} ${lx + 10} ${sy + 24} Z" fill="${c2}"/>`;
     case 'tank':
-      return {
-        torso: `
-          <path d="M196 262 Q256 248 316 262 L336 470 Q256 486 176 470 Z" fill="${c}"/>
-          <path d="M196 262 L216 276 M316 262 L296 276" stroke="${c}" stroke-width="18" stroke-linecap="round"/>`,
-        sleeve: l.skin,
-      };
+      return `
+        <path d="M ${lx + 14} ${sy + 2} Q 256 ${sy - 18} ${rx2 - 14} ${sy + 2} L ${256 + tw} ${hipY - 6} Q 256 ${hipY + 10} ${256 - tw} ${hipY - 6} Z" fill="${c}"/>`;
     case 'sweater':
-      return {
-        torso: `
-          <path d="M172 276 Q256 252 340 276 L354 462 Q256 480 158 462 Z" fill="${c}"/>
-          <rect x="162" y="446" width="188" height="22" rx="8" fill="${dark}"/>
-          <path d="M238 262 Q256 254 274 262 L274 286 Q256 296 238 286 Z" fill="${dark}"/>`,
-        sleeve: c,
-      };
+      return `
+        <path d="M ${lx - 2} ${sy + 4} Q 256 ${sy - 20} ${rx2 + 2} ${sy + 4} L ${256 + tw + 2} ${hipY + 4} Q 256 ${hipY + 18} ${256 - tw - 2} ${hipY + 4} Z" fill="${c}"/>
+        <path d="M 238 ${sy + 2} Q 256 ${sy - 2} 274 ${sy + 2} L 274 ${sy + 26} Q 256 ${sy + 34} 238 ${sy + 26} Z" fill="${c2}"/>`;
     case 'tee':
     default:
-      return {
-        torso: `
-          <path d="M172 268 Q256 248 340 268 L354 462 Q256 480 158 462 Z" fill="${c}"/>
-          <path d="M216 258 Q256 280 296 258 Q282 276 256 278 Q230 276 216 258 Z" fill="${shade(l.skin, -14)}"/>`,
-        sleeve: c,
-      };
+      return `
+        <path d="${base}" fill="${c}"/>
+        <path d="M 226 ${sy - 6} Q 256 ${sy + 18} 286 ${sy - 6} Q 274 ${sy + 8} 256 ${sy + 10} Q 238 ${sy + 8} 226 ${sy - 6} Z" fill="${shade(look.skin, -10)}" opacity="0.55"/>`;
+  }
+}
+
+function armStroke(p: ArmPose, g: Geometry, color: string, width: number): string {
+  const sy = g.shoulderY + 6;
+  const sxL = g.shoulderLX + 4;
+  const [ex, ey] = p.elbow;
+  const [hx, hy] = p.hand;
+  return `<path d="M ${sxL} ${sy} Q ${ex} ${ey} ${hx} ${hy}" stroke="${color}" stroke-width="${width}" stroke-linecap="round" fill="none"/>
+          <circle cx="${hx}" cy="${hy}" r="${width * 0.52}" fill="${color}"/>`;
+}
+
+function legs(look: CharacterLook, g: Geometry, pose: Pose): string {
+  const pc = shade(look.pantsColor, PANTS_DIM);
+  const shoe = '#0C0E13';
+  const lw = Math.round(g.hipHalfW * 0.52);
+  if (pose === 'sit' || pose === 'pet') {
+    // seated: thighs forward, shins down
+    const kneeY = g.hipY + 26;
+    return `
+      <path d="M ${256 - 34} ${g.hipY} L ${256 + 60} ${kneeY} L ${256 + 60} ${g.footY - 26}" stroke="${pc}" stroke-width="${lw + 4}" stroke-linecap="round" fill="none"/>
+      <path d="M ${256 - 10} ${g.hipY + 4} L ${256 + 82} ${kneeY + 10} L ${256 + 82} ${g.footY - 18}" stroke="${pc}" stroke-width="${lw + 4}" stroke-linecap="round" fill="none"/>
+      <ellipse cx="${256 + 74}" cy="${g.footY - 10}" rx="30" ry="13" fill="${shoe}"/>
+      <ellipse cx="${256 + 96}" cy="${g.footY - 6}" rx="30" ry="13" fill="${shoe}"/>
+      <rect x="${256 - g.hipHalfW - 6}" y="${g.hipY - 18}" width="${g.hipHalfW * 2 + 12}" height="34" rx="14" fill="${pc}"/>`;
+  }
+  const lx = 256 - g.hipHalfW + lw / 2;
+  const rx2 = 256 + g.hipHalfW - lw / 2;
+  return `
+    <path d="M ${lx} ${g.legTopY - 12} L ${lx} ${g.footY - 14}" stroke="${pc}" stroke-width="${lw}" stroke-linecap="round" fill="none"/>
+    <path d="M ${rx2} ${g.legTopY - 12} L ${rx2} ${g.footY - 14}" stroke="${pc}" stroke-width="${lw}" stroke-linecap="round" fill="none"/>
+    <ellipse cx="${lx}" cy="${g.footY - 4}" rx="30" ry="14" fill="${shoe}"/>
+    <ellipse cx="${rx2 + 6}" cy="${g.footY - 4}" rx="30" ry="14" fill="${shoe}"/>`;
+}
+
+/** Prop drawn as part of the pose (book, pencil, phone) */
+function poseProps(pose: Pose, g: Geometry, accent: string): string {
+  switch (pose) {
+    case 'read': {
+      const by = g.shoulderY + 108;
+      return `
+        <g>
+          <path d="M 196 ${by} Q 256 ${by - 18} 256 ${by - 14} Q 256 ${by - 18} 316 ${by} L 316 ${by + 66} Q 256 ${by + 48} 196 ${by + 66} Z" fill="${shade(accent, -20)}"/>
+          <path d="M 208 ${by + 8} L 304 ${by + 8} M 208 ${by + 26} L 304 ${by + 26} M 208 ${by + 44} L 290 ${by + 44}" stroke="rgba(244,236,220,0.5)" stroke-width="5" stroke-linecap="round"/>
+          <path d="M 256 ${by - 14} L 256 ${by + 52}" stroke="rgba(12,14,20,0.6)" stroke-width="5"/>
+        </g>`;
+    }
+    case 'write':
+      return `<line x1="${256 + 58}" y1="${g.shoulderY + 116}" x2="${256 + 74}" y2="${g.shoulderY + 148}" stroke="${accent}" stroke-width="7" stroke-linecap="round"/>`;
+    case 'phone':
+      return `<rect x="${g.shoulderLX + 20}" y="${g.head.cy + 2}" width="18" height="34" rx="5" fill="${shade(accent, -26)}" transform="rotate(-14 ${g.shoulderLX + 29} ${g.head.cy + 19})"/>`;
+    case 'give':
+      return `<circle cx="256" cy="${g.shoulderY + 128}" r="17" fill="${accent}" opacity="0.9"/>`;
+    default:
+      return '';
   }
 }
 
 /** Builds the full character sprite SVG (face features are drawn by the engine) */
-export function buildCharacterSvg(look: CharacterLook): string {
-  const { torso, sleeve } = outfitLayer(look);
-  const skinDark = shade(look.skin, -18);
-  const sleeveless = look.outfit === 'tank' || look.outfit === 'dress';
-  const armSleeveLen = sleeveless ? 0 : 62;
+export function buildCharacterSvg(look: CharacterLook, pose: Pose = 'idle'): string {
+  const g = geometry(look);
+  const accent = look.skin;
+  const bodyCore = shade('#1C202C', 0);
+  const armL = leftArm(pose, g);
+  const armR = mirror(armL, g);
+
+  const figure = `
+    ${legs(look, g, pose)}
+    ${armStroke(armL, g, shade(look.outfitColor, CLOTH_DIM + 8), g.armW)}
+    ${armStroke(armR, g, shade(look.outfitColor, CLOTH_DIM + 8), g.armW)}
+    <rect x="${256 - g.neckW / 2}" y="${g.neckTopY}" width="${g.neckW}" height="${g.shoulderY - g.neckTopY + 8}" rx="${g.neckW / 3}" fill="${bodyCore}"/>
+    ${outfitTorso(look, g)}
+    ${hairShapes(look, g)}
+    <path d="${headPath(g.head)}" fill="url(#gHead)"/>
+    ${poseProps(pose, g, accent)}
+  `;
+
+  // rim-light pass: the same figure painted in the accent color, offset up-left,
+  // then covered by the dark body — leaving a thin luminous edge sliver.
+  const rim = figure
+    .replace(/fill="url\(#gHead\)"/g, `fill="${accent}"`)
+    .replace(/stroke-width="(\d+(\.\d+)?)"/g, (_, w) => `stroke-width="${Number(w) + 6}"`);
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${SPRITE_W} ${SPRITE_H}" width="${SPRITE_W}" height="${SPRITE_H}">
-  <!-- shadow catcher (drawn by canvas) -->
-  <!-- back hair -->
-  ${hairBack(look)}
-  <!-- legs -->
-  <rect x="222" y="452" width="30" height="256" rx="14" fill="${look.pantsColor}"/>
-  <rect x="260" y="452" width="30" height="256" rx="14" fill="${look.pantsColor}"/>
-  <rect x="214" y="690" width="46" height="30" rx="12" fill="#2B2B33"/>
-  <rect x="252" y="690" width="46" height="30" rx="12" fill="#2B2B33"/>
-  <!-- arms -->
-  <path d="M182 292 L150 432" stroke="${look.skin}" stroke-width="30" stroke-linecap="round" fill="none"/>
-  <path d="M330 292 L362 432" stroke="${look.skin}" stroke-width="30" stroke-linecap="round" fill="none"/>
-  ${
-    armSleeveLen > 0
-      ? `<path d="M182 292 L${182 - armSleeveLen * 0.35} ${292 + armSleeveLen}" stroke="${sleeve}" stroke-width="36" stroke-linecap="round" fill="none"/>
-         <path d="M330 292 L${330 + armSleeveLen * 0.35} ${292 + armSleeveLen}" stroke="${sleeve}" stroke-width="36" stroke-linecap="round" fill="none"/>`
-      : ''
-  }
-  <circle cx="150" cy="436" r="16" fill="${look.skin}"/>
-  <circle cx="362" cy="436" r="16" fill="${look.skin}"/>
-  <!-- torso -->
-  ${torso}
-  <!-- neck -->
-  <rect x="238" y="212" width="36" height="46" rx="10" fill="${look.skin}"/>
-  <path d="M238 218 q18 14 36 0 l0 18 q-18 10 -36 0 Z" fill="${skinDark}" opacity="0.55"/>
-  <!-- ears -->
-  <circle cx="178" cy="156" r="14" fill="${look.skin}"/>
-  <circle cx="334" cy="156" r="14" fill="${look.skin}"/>
-  <!-- head -->
-  <ellipse cx="${HEAD_CX}" cy="${HEAD_CY}" rx="${HEAD_RX}" ry="${HEAD_RY}" fill="${look.skin}"/>
-  <ellipse cx="${HEAD_CX}" cy="${HEAD_CY}" rx="${HEAD_RX}" ry="${HEAD_RY}" fill="none" stroke="${INK}" stroke-width="3"/>
-  <!-- hair front -->
-  ${hairFront(look)}
-  ${
-    look.glasses
-      ? `<circle cx="216" cy="150" r="27" fill="none" stroke="#3A3A44" stroke-width="6"/>
-         <circle cx="296" cy="150" r="27" fill="none" stroke="#3A3A44" stroke-width="6"/>
-         <line x1="243" y1="146" x2="269" y2="146" stroke="#3A3A44" stroke-width="6"/>
-         <line x1="189" y1="146" x2="176" y2="150" stroke="#3A3A44" stroke-width="6"/>
-         <line x1="323" y1="146" x2="334" y2="150" stroke="#3A3A44" stroke-width="6"/>`
-      : ''
-  }
+  <defs>
+    <linearGradient id="gHead" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#333848"/>
+      <stop offset="1" stop-color="#171A23"/>
+    </linearGradient>
+    <linearGradient id="gBody" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="${BODY_TOP}"/>
+      <stop offset="1" stop-color="${BODY_BOT}"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(-5,-4)">${rim}</g>
+  <g>${figure}</g>
 </svg>`;
 }
 
-/** stable cache key for a character look */
-export function lookKey(look: CharacterLook): string {
-  const s = `${look.skin}|${look.hair}|${look.hairColor}|${look.outfit}|${look.outfitColor}|${look.pantsColor}|${look.glasses ? 1 : 0}`;
+/** stable cache key for a character look + pose */
+export function lookKey(look: CharacterLook, pose: Pose = 'idle'): string {
+  const s = `${look.skin}|${look.hair}|${look.hairColor}|${look.outfit}|${look.outfitColor}|${look.pantsColor}|${look.glasses ? 1 : 0}|${look.age ?? 'adult'}|${pose}`;
   let h = 5381;
   for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
   return `char-${h.toString(36)}`;

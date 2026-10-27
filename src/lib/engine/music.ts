@@ -1,8 +1,11 @@
 /**
  * Procedural background score (Plotagon "AUDIO" analog).
- * A tiny WebAudio loop: warm pad chords + soft arpeggio. Optionally routed
- * into a MediaStream so the video exporter can include the music track.
+ * A tiny WebAudio loop: warm pad chords + soft arpeggio.
+ * Routes into the shared master audio graph so video export captures
+ * voice + music + SFX together.
  */
+
+import { getMasterAudio } from './voice';
 
 const CHORDS: number[][] = [
   [261.63, 329.63, 392.0], // C
@@ -12,56 +15,38 @@ const CHORDS: number[][] = [
 ];
 
 export class MusicEngine {
-  private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
-  private streamDest: MediaStreamAudioDestinationNode | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private step = 0;
   private running = false;
 
-  private ensure(): AudioContext {
-    if (!this.ctx) {
-      const AC: typeof AudioContext =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      this.ctx = new AC();
-      this.master = this.ctx.createGain();
-      this.master.gain.value = 0.0;
-      const lp = this.ctx.createBiquadFilter();
-      lp.type = 'lowpass';
-      lp.frequency.value = 2200;
-      this.master.connect(lp);
-      lp.connect(this.ctx.destination);
-      this.streamDest = this.ctx.createMediaStreamAudioDestination();
-      lp.connect(this.streamDest);
-    }
-    return this.ctx;
-  }
-
-  /** Start the loop. Returns a MediaStream for recording (audio track). */
-  start(): MediaStream | null {
-    const ctx = this.ensure();
+  /** Start the loop against the shared master graph. */
+  start(): void {
+    const { ctx, master } = getMasterAudio();
     if (ctx.state === 'suspended') {
       ctx.resume().catch(() => undefined);
     }
-    if (this.running) return this.streamDest?.stream ?? null;
+    if (this.running) return;
     this.running = true;
+    this.master = ctx.createGain();
+    this.master.gain.value = 0.0;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 2200;
+    this.master.connect(lp);
+    lp.connect(master);
     // fade in
-    if (this.master) {
-      this.master.gain.cancelScheduledValues(ctx.currentTime);
-      this.master.gain.linearRampToValueAtTime(0.16, ctx.currentTime + 1.2);
-    }
+    this.master.gain.cancelScheduledValues(ctx.currentTime);
+    this.master.gain.linearRampToValueAtTime(0.14, ctx.currentTime + 1.2);
     this.tick(); // play first chord immediately
     this.timer = setInterval(() => this.tick(), 2000);
-    return this.streamDest?.stream ?? null;
   }
 
   private tick(): void {
-    const ctx = this.ctx;
+    const ctx = getMasterAudio().ctx;
     if (!ctx || !this.master) return;
     const chord = CHORDS[this.step % CHORDS.length];
     const t = ctx.currentTime;
-    // pad
     chord.forEach((f, i) => {
       const osc = ctx.createOscillator();
       const g = ctx.createGain();
@@ -75,7 +60,6 @@ export class MusicEngine {
       osc.start(t);
       osc.stop(t + 2.1);
     });
-    // arpeggio plucks
     for (let n = 0; n < 4; n++) {
       const f = chord[n % chord.length] * (n >= 3 ? 2 : 1);
       const osc = ctx.createOscillator();
@@ -100,19 +84,27 @@ export class MusicEngine {
       this.timer = null;
     }
     this.running = false;
-    if (this.ctx && this.master) {
-      this.master.gain.cancelScheduledValues(this.ctx.currentTime);
-      this.master.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.4);
+    if (this.master) {
+      try {
+        const ctx = getMasterAudio().ctx;
+        this.master.gain.cancelScheduledValues(ctx.currentTime);
+        this.master.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.3);
+      } catch {
+        /* graph already closed */
+      }
+      const m = this.master;
+      setTimeout(() => {
+        try {
+          m.disconnect();
+        } catch {
+          /* noop */
+        }
+      }, 500);
+      this.master = null;
     }
   }
 
   dispose(): void {
     this.stop();
-    if (this.ctx) {
-      this.ctx.close().catch(() => undefined);
-      this.ctx = null;
-      this.master = null;
-      this.streamDest = null;
-    }
   }
 }

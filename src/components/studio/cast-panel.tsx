@@ -37,6 +37,8 @@ const ENTER_LABELS: Record<EnterType, string> = {
   fade: 'Fades in',
   walkLeft: 'Walks in from left',
   walkRight: 'Walks in from right',
+  runLeft: 'Runs in from left',
+  runRight: 'Runs in from right',
 };
 
 export function CastPanel({

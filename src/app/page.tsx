@@ -37,7 +37,7 @@ export default function Page() {
     if (Object.keys(s.characters).length === 0 && Object.keys(s.projects).length === 0) {
       const chars = seedCharacters();
       chars.forEach((c) => s.putCharacter(c));
-      s.putProject(seedProject(chars));
+      s.putProject(seedProject());
       s.setActiveProject(null);
     }
   }, [mounted]);

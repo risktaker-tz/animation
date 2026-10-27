@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Trash2, UserRound, Volume2 } from 'lucide-react';
+import { Dog, Plus, Trash2, UserRound, Volume2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -30,20 +30,32 @@ import { useToast } from '@/hooks/use-toast';
 import { useStoryStore } from '@/lib/store';
 import { makeCharacter } from '@/lib/sample';
 import { buildCharacterSvg } from '@/lib/character-svg';
-import { speak, stopAllSpeech, ttsSupported } from '@/lib/engine/tts';
+import { buildAnimalSvg } from '@/lib/animals';
+import {
+  fetchVoiceBuffer,
+  playBufferNow,
+  resolveVoice,
+  stopAllSpeech,
+  ttsSupported,
+} from '@/lib/engine/voice';
 import { SvgInline } from '@/components/svg-inline';
 import {
+  ANIMAL_ACCENTS,
   CLOTH_COLORS,
   HAIR_COLORS,
   HAIR_STYLES,
   OUTFIT_STYLES,
   PANTS_COLORS,
   SKIN_TONES,
+  type AgeVariant,
+  type AnimalSpecies,
   type Character,
   type CharacterLook,
+  type CharacterKind,
   type HairStyle,
   type OutfitStyle,
 } from '@/lib/types';
+import { VOICE_BANK } from '@/lib/engine/voice';
 
 const HAIR_LABELS: Record<HairStyle, string> = {
   short: 'Short',
@@ -63,6 +75,12 @@ const OUTFIT_LABELS: Record<OutfitStyle, string> = {
   dress: 'Dress',
   tank: 'Tank top',
   sweater: 'Sweater',
+};
+
+const SPECIES_LABELS: Record<AnimalSpecies, string> = {
+  dog: 'Dog',
+  cat: 'Cat',
+  bird: 'Bird',
 };
 
 function Swatches({
@@ -98,6 +116,13 @@ function Swatches({
   );
 }
 
+function previewSvg(c: Character): string {
+  if (c.kind === 'animal') {
+    return buildAnimalSvg(c.species ?? 'dog', c.look.skin, 'idle');
+  }
+  return buildCharacterSvg(c.look, 'idle');
+}
+
 export function CharacterView() {
   const characters = useStoryStore((s) => s.characters);
   const putCharacter = useStoryStore((s) => s.putCharacter);
@@ -109,24 +134,7 @@ export function CharacterView() {
   const selected: Character | undefined =
     (selectedId && characters[selectedId]) || list[0];
 
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const testRef = useRef<{ cancel: () => void } | null>(null);
-
-  useEffect(() => {
-    if (!ttsSupported()) return;
-    let tries = 0;
-    const load = () => {
-      const v = window.speechSynthesis.getVoices();
-      if (v.length) setVoices(v);
-      return v.length > 0;
-    };
-    load();
-    const t = setInterval(() => {
-      tries += 1;
-      if (load() || tries > 8) clearInterval(t);
-    }, 700);
-    return () => clearInterval(t);
-  }, []);
+  const testRef = useRef<{ stop: () => void } | null>(null);
 
   useEffect(() => () => stopAllSpeech(), []);
 
@@ -139,22 +147,51 @@ export function CharacterView() {
     update({ look: { ...selected.look, ...patch } });
   };
 
-  const createActor = () => {
-    const c = makeCharacter({ name: `Actor ${list.length + 1}` });
+  const createActor = (kind: CharacterKind = 'human') => {
+    const c =
+      kind === 'animal'
+        ? makeCharacter({
+            name: `Pet ${list.length + 1}`,
+            kind: 'animal',
+            species: 'dog',
+            look: { skin: ANIMAL_ACCENTS[0], hair: 'short', hairColor: '#2E241C', outfit: 'tee', outfitColor: '#37421F', pantsColor: '#23262E', glasses: false },
+            voice: { voiceURI: '', rate: 1, pitch: 1.4, voiceId: 'am_puck', speed: 1.15, pitchShift: 1.5 },
+          })
+        : makeCharacter({ name: `Actor ${list.length + 1}` });
     putCharacter(c);
     setSelectedId(c.id);
-    toast({ title: 'Actor created', description: 'Customize the look and voice, it saves instantly.' });
+    toast({ title: kind === 'animal' ? 'Animal created' : 'Actor created', description: 'Customize the look and voice, it saves instantly.' });
   };
 
-  const testVoice = () => {
+  const testVoice = async () => {
     if (!selected) return;
-    testRef.current?.cancel();
+    testRef.current?.stop();
     stopAllSpeech();
-    testRef.current = speak(
-      `Hi! I am ${selected.name}. I am ready for my close-up.`,
-      selected.voice
-    );
+    const line =
+      selected.kind === 'animal'
+        ? selected.species === 'cat'
+          ? 'Meow meow!'
+          : selected.species === 'bird'
+            ? 'Tweet tweet!'
+            : 'Woof woof!'
+        : `Hi! I am ${selected.name}. I am ready for my close-up.`;
+    const v = resolveVoice(selected);
+    const buf = await fetchVoiceBuffer(line, v.voiceId, v.speed, v.pitchShift);
+    if (buf) {
+      testRef.current = playBufferNow(buf);
+    } else if (ttsSupported()) {
+      // graceful fallback to browser speech
+      const u = new SpeechSynthesisUtterance(line);
+      u.rate = selected.voice.rate;
+      u.pitch = selected.voice.pitch;
+      window.speechSynthesis.speak(u);
+    } else {
+      toast({ title: 'Voice service offline', description: 'Start scripts/serve_tts.py to enable neural voices.' });
+    }
   };
+
+  const femaleVoices = VOICE_BANK.filter((v) => v.gender === 'female');
+  const maleVoices = VOICE_BANK.filter((v) => v.gender === 'male');
 
   return (
     <div className="mx-auto w-full max-w-[1500px] flex-1 px-4 py-8 sm:px-6">
@@ -164,13 +201,18 @@ export function CharacterView() {
             Your <span className="text-gradient">cast</span>
           </h1>
           <p className="mt-1.5 max-w-xl text-sm text-muted-foreground">
-            Design the actors that will star in your stories. Changes save
-            instantly and apply to every scene they appear in.
+            Design humans and animals that star in your stories. Every actor gets
+            a unique, realistic neural voice — changes save instantly.
           </p>
         </div>
-        <Button className="gap-2" onClick={createActor}>
-          <Plus className="size-4" /> New actor
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="secondary" className="gap-2" onClick={() => createActor('animal')}>
+            <Dog className="size-4" /> New animal
+          </Button>
+          <Button className="gap-2" onClick={() => createActor('human')}>
+            <Plus className="size-4" /> New actor
+          </Button>
+        </div>
       </div>
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[300px_1fr_380px]">
@@ -192,9 +234,12 @@ export function CharacterView() {
                   }`}
                 >
                   <div className="mx-auto h-24 w-20 overflow-hidden">
-                    <SvgInline svg={buildCharacterSvg(c.look)} className="thumb-svg h-full w-full" />
+                    <SvgInline svg={previewSvg(c)} className="thumb-svg h-full w-full" />
                   </div>
                   <p className="mt-2 truncate text-center text-sm font-semibold">{c.name}</p>
+                  {c.kind === 'animal' && (
+                    <p className="text-center text-[10px] text-muted-foreground">{SPECIES_LABELS[c.species ?? 'dog']}</p>
+                  )}
                 </button>
               </li>
             ))}
@@ -211,15 +256,15 @@ export function CharacterView() {
           <div className="sticky top-20">
             <div className="bg-grid-glow relative overflow-hidden rounded-3xl border border-border bg-card">
               <div className="mx-auto h-[420px] w-full max-w-[300px] p-4">
-                {selected ? <SvgInline svg={buildCharacterSvg(selected.look)} className="thumb-svg h-full w-full" /> : null}
+                {selected ? <SvgInline svg={previewSvg(selected)} className="thumb-svg h-full w-full" /> : null}
               </div>
               {selected && (
                 <div className="border-t border-border/70 bg-background/60 px-5 py-3 text-center">
                   <p className="text-lg font-bold">{selected.name}</p>
                   <p className="text-xs text-muted-foreground">
-                    {HAIR_LABELS[selected.look.hair]} hair ·{' '}
-                    {OUTFIT_LABELS[selected.look.outfit]}
-                    {selected.look.glasses ? ' · glasses' : ''}
+                    {selected.kind === 'animal'
+                      ? `${SPECIES_LABELS[selected.species ?? 'dog']} · silhouette animal actor`
+                      : `${selected.look.age === 'child' ? 'Child' : 'Adult'} · ${HAIR_LABELS[selected.look.hair]} hair · ${OUTFIT_LABELS[selected.look.outfit]}${selected.look.glasses ? ' · glasses' : ''}`}
                   </p>
                 </div>
               )}
@@ -280,107 +325,182 @@ export function CharacterView() {
                   </AlertDialog>
                 </div>
 
+                {/* kind + age */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Kind</Label>
+                    <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+                      {(['human', 'animal'] as CharacterKind[]).map((k) => (
+                        <button
+                          key={k}
+                          onClick={() => update({ kind: k, species: k === 'animal' ? (selected.species ?? 'dog') : undefined })}
+                          aria-pressed={(selected.kind ?? 'human') === k}
+                          className={`rounded-lg border px-1 py-2 text-[11px] font-medium capitalize transition-colors ${
+                            (selected.kind ?? 'human') === k
+                              ? 'border-primary bg-primary/15 text-primary'
+                              : 'border-border bg-background hover:border-primary/40'
+                          }`}
+                        >
+                          {k}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {selected.kind === 'animal' ? (
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Species</Label>
+                      <div className="mt-1.5 grid grid-cols-3 gap-1.5">
+                        {(['dog', 'cat', 'bird'] as AnimalSpecies[]).map((sp) => (
+                          <button
+                            key={sp}
+                            onClick={() => update({ species: sp })}
+                            aria-pressed={(selected.species ?? 'dog') === sp}
+                            className={`rounded-lg border px-1 py-2 text-[11px] font-medium transition-colors ${
+                              (selected.species ?? 'dog') === sp
+                                ? 'border-primary bg-primary/15 text-primary'
+                                : 'border-border bg-background hover:border-primary/40'
+                            }`}
+                          >
+                            {SPECIES_LABELS[sp]}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Age</Label>
+                      <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+                        {(['adult', 'child'] as AgeVariant[]).map((a) => (
+                          <button
+                            key={a}
+                            onClick={() => updateLook({ age: a })}
+                            aria-pressed={(selected.look.age ?? 'adult') === a}
+                            className={`rounded-lg border px-1 py-2 text-[11px] font-medium capitalize transition-colors ${
+                              (selected.look.age ?? 'adult') === a
+                                ? 'border-primary bg-primary/15 text-primary'
+                                : 'border-border bg-background hover:border-primary/40'
+                            }`}
+                          >
+                            {a}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <Swatches
-                  label="Skin tone"
-                  colors={SKIN_TONES}
+                  label={selected.kind === 'animal' ? 'Accent color' : 'Rim light color'}
+                  colors={selected.kind === 'animal' ? ANIMAL_ACCENTS : SKIN_TONES}
                   value={selected.look.skin}
                   onChange={(skin) => updateLook({ skin })}
                 />
 
-                <div>
-                  <Label className="text-xs text-muted-foreground">Hairstyle</Label>
-                  <div className="mt-1.5 grid grid-cols-4 gap-2">
-                    {HAIR_STYLES.map((h) => (
-                      <button
-                        key={h}
-                        onClick={() => updateLook({ hair: h })}
-                        aria-pressed={selected.look.hair === h}
-                        className={`rounded-lg border px-1 py-2 text-[11px] font-medium transition-colors ${
-                          selected.look.hair === h
-                            ? 'border-primary bg-primary/15 text-primary'
-                            : 'border-border bg-background hover:border-primary/40'
-                        }`}
-                      >
-                        {HAIR_LABELS[h]}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                {selected.kind !== 'animal' && (
+                  <>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Hairstyle</Label>
+                      <div className="mt-1.5 grid grid-cols-4 gap-2">
+                        {HAIR_STYLES.map((h) => (
+                          <button
+                            key={h}
+                            onClick={() => updateLook({ hair: h })}
+                            aria-pressed={selected.look.hair === h}
+                            className={`rounded-lg border px-1 py-2 text-[11px] font-medium transition-colors ${
+                              selected.look.hair === h
+                                ? 'border-primary bg-primary/15 text-primary'
+                                : 'border-border bg-background hover:border-primary/40'
+                            }`}
+                          >
+                            {HAIR_LABELS[h]}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
 
-                <Swatches
-                  label="Hair color"
-                  colors={HAIR_COLORS}
-                  value={selected.look.hairColor}
-                  onChange={(hairColor) => updateLook({ hairColor })}
-                />
+                    <Swatches
+                      label="Hair color"
+                      colors={HAIR_COLORS}
+                      value={selected.look.hairColor}
+                      onChange={(hairColor) => updateLook({ hairColor })}
+                    />
 
-                <div>
-                  <Label className="text-xs text-muted-foreground">Outfit</Label>
-                  <div className="mt-1.5 grid grid-cols-3 gap-2">
-                    {OUTFIT_STYLES.map((o) => (
-                      <button
-                        key={o}
-                        onClick={() => updateLook({ outfit: o })}
-                        aria-pressed={selected.look.outfit === o}
-                        className={`rounded-lg border px-1 py-2 text-[11px] font-medium transition-colors ${
-                          selected.look.outfit === o
-                            ? 'border-primary bg-primary/15 text-primary'
-                            : 'border-border bg-background hover:border-primary/40'
-                        }`}
-                      >
-                        {OUTFIT_LABELS[o]}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Outfit</Label>
+                      <div className="mt-1.5 grid grid-cols-3 gap-2">
+                        {OUTFIT_STYLES.map((o) => (
+                          <button
+                            key={o}
+                            onClick={() => updateLook({ outfit: o })}
+                            aria-pressed={selected.look.outfit === o}
+                            className={`rounded-lg border px-1 py-2 text-[11px] font-medium transition-colors ${
+                              selected.look.outfit === o
+                                ? 'border-primary bg-primary/15 text-primary'
+                                : 'border-border bg-background hover:border-primary/40'
+                            }`}
+                          >
+                            {OUTFIT_LABELS[o]}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
 
-                <Swatches
-                  label="Outfit color"
-                  colors={CLOTH_COLORS}
-                  value={selected.look.outfitColor}
-                  onChange={(outfitColor) => updateLook({ outfitColor })}
-                />
+                    <Swatches
+                      label="Outfit color"
+                      colors={CLOTH_COLORS}
+                      value={selected.look.outfitColor}
+                      onChange={(outfitColor) => updateLook({ outfitColor })}
+                    />
 
-                <Swatches
-                  label="Pants color"
-                  colors={PANTS_COLORS}
-                  value={selected.look.pantsColor}
-                  onChange={(pantsColor) => updateLook({ pantsColor })}
-                />
+                    <Swatches
+                      label="Pants color"
+                      colors={PANTS_COLORS}
+                      value={selected.look.pantsColor}
+                      onChange={(pantsColor) => updateLook({ pantsColor })}
+                    />
 
-                <label className="flex items-center justify-between rounded-xl border border-border bg-background/50 p-3">
-                  <span className="flex items-center gap-2 text-sm">
-                    <UserRound className="size-4 text-primary" /> Glasses
-                  </span>
-                  <Switch
-                    checked={selected.look.glasses}
-                    onCheckedChange={(glasses) => updateLook({ glasses })}
-                    aria-label="Toggle glasses"
-                  />
-                </label>
+                    <label className="flex items-center justify-between rounded-xl border border-border bg-background/50 p-3">
+                      <span className="flex items-center gap-2 text-sm">
+                        <UserRound className="size-4 text-primary" /> Glasses
+                      </span>
+                      <Switch
+                        checked={selected.look.glasses}
+                        onCheckedChange={(glasses) => updateLook({ glasses })}
+                        aria-label="Toggle glasses"
+                      />
+                    </label>
+                  </>
+                )}
 
                 <div className="rounded-xl border border-border bg-background/50 p-3">
                   <p className="flex items-center gap-2 text-sm font-semibold">
-                    <Volume2 className="size-4 text-primary" /> Voice
+                    <Volume2 className="size-4 text-primary" /> Neural voice
+                    <span className="ml-auto rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                      Kokoro · open source
+                    </span>
+                  </p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Realistic voices from the open-source Kokoro-82M engine. Each
+                    cast member can have their own.
                   </p>
                   <div className="mt-3">
-                    <Label className="text-xs text-muted-foreground">Browser voice</Label>
+                    <Label className="text-xs text-muted-foreground">Voice pack</Label>
                     <Select
-                      value={selected.voice.voiceURI || 'default'}
-                      onValueChange={(v) =>
-                        update({ voice: { ...selected.voice, voiceURI: v === 'default' ? '' : v } })
-                      }
+                      value={resolveVoice(selected).voiceId}
+                      onValueChange={(v) => update({ voice: { ...selected.voice, voiceId: v } })}
                     >
                       <SelectTrigger className="mt-1.5 w-full text-xs">
-                        <SelectValue placeholder="System default" />
+                        <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="default" className="text-xs">
-                          System default
-                        </SelectItem>
-                        {voices.map((v) => (
-                          <SelectItem key={v.voiceURI} value={v.voiceURI} className="text-xs">
-                            {v.name} ({v.lang})
+                        {femaleVoices.map((v) => (
+                          <SelectItem key={v.id} value={v.id} className="text-xs">
+                            {v.label} · female {v.accent} · {v.vibe}
+                          </SelectItem>
+                        ))}
+                        {maleVoices.map((v) => (
+                          <SelectItem key={v.id} value={v.id} className="text-xs">
+                            {v.label} · male {v.accent} · {v.vibe}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -388,39 +508,39 @@ export function CharacterView() {
                   </div>
                   <div className="mt-4">
                     <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>Pitch</span>
-                      <span>{selected.voice.pitch.toFixed(2)}</span>
+                      <span>Voice speed</span>
+                      <span>{(selected.voice.speed ?? 1).toFixed(2)}×</span>
                     </div>
                     <Slider
                       className="mt-2"
-                      min={0.5}
-                      max={1.6}
+                      min={0.7}
+                      max={1.3}
                       step={0.01}
-                      value={[selected.voice.pitch]}
-                      onValueChange={([pitch]) => update({ voice: { ...selected.voice, pitch } })}
-                      aria-label="Voice pitch"
+                      value={[selected.voice.speed ?? 1]}
+                      onValueChange={([speed]) => update({ voice: { ...selected.voice, speed } })}
+                      aria-label="Voice speed"
                     />
                   </div>
                   <div className="mt-3">
                     <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>Speed</span>
-                      <span>{selected.voice.rate.toFixed(2)}×</span>
+                      <span>Pitch lift (kid voices)</span>
+                      <span>{(selected.voice.pitchShift ?? 1).toFixed(2)}×</span>
                     </div>
                     <Slider
                       className="mt-2"
-                      min={0.6}
-                      max={1.5}
+                      min={0.85}
+                      max={1.6}
                       step={0.01}
-                      value={[selected.voice.rate]}
-                      onValueChange={([rate]) => update({ voice: { ...selected.voice, rate } })}
-                      aria-label="Voice speed"
+                      value={[selected.voice.pitchShift ?? 1]}
+                      onValueChange={([pitchShift]) => update({ voice: { ...selected.voice, pitchShift } })}
+                      aria-label="Voice pitch lift"
                     />
                   </div>
                   <Button
                     variant="secondary"
                     size="sm"
                     className="mt-4 w-full gap-2"
-                    onClick={testVoice}
+                    onClick={() => void testVoice()}
                   >
                     <Volume2 className="size-4" /> Test voice
                   </Button>

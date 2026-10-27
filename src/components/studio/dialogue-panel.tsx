@@ -20,7 +20,8 @@ import {
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import {
-  ACTION_LABELS,
+  ACTION_CATEGORIES,
+  ACTION_META,
   EMOTIONS,
   EMOTION_LABELS,
   uid,
@@ -30,7 +31,13 @@ import {
   type Emotion,
   type Shot,
 } from '@/lib/types';
-import { speak, stopAllSpeech } from '@/lib/engine/tts';
+import {
+  fetchVoiceBuffer,
+  playBufferNow,
+  resolveVoice,
+  stopAllSpeech,
+  ttsSupported,
+} from '@/lib/engine/voice';
 import type { PatchShot } from '@/components/studio/scene-panel';
 
 export function DialoguePanel({
@@ -47,12 +54,12 @@ export function DialoguePanel({
   onSelectBeat: (id: string | null) => void;
 }) {
   const { toast } = useToast();
-  const testRef = useRef<{ cancel: () => void } | null>(null);
+  const testRef = useRef<{ stop: () => void } | null>(null);
 
   if (shot.kind === 'title') {
     return (
       <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-        Title cards play silently. Add dialogue in scene shots.
+        Title cards play with optional narration. Add dialogue in scene shots.
       </p>
     );
   }
@@ -68,6 +75,7 @@ export function DialoguePanel({
       text: '',
       emotion: 'inherit',
       action: 'none',
+      targetId: null,
     };
     mutateBeats((b) => [...b, beat]);
     onSelectBeat(beat.id);
@@ -86,22 +94,45 @@ export function DialoguePanel({
     });
   };
 
-  const testVoice = (beat: Beat) => {
-    const ch = beat.characterId ? characters[beat.characterId] : null;
+  const testVoice = async (beat: Beat) => {
     if (!beat.text.trim()) return;
-    testRef.current?.cancel();
+    testRef.current?.stop();
     stopAllSpeech();
-    testRef.current = speak(beat.text, ch ? ch.voice : { voiceURI: '', rate: 0.95, pitch: 0.9 });
-    if (!ch) {
-      toast({ title: 'Narrator voice', description: 'Playing with the narrator voice' });
+    const ch = beat.characterId ? characters[beat.characterId] : null;
+    const v = resolveVoice(ch);
+    const buf = await fetchVoiceBuffer(beat.text, v.voiceId, v.speed, v.pitchShift);
+    if (buf) {
+      testRef.current = playBufferNow(buf);
+    } else if (ttsSupported()) {
+      const u = new SpeechSynthesisUtterance(beat.text);
+      u.rate = v.web.rate;
+      u.pitch = v.web.pitch;
+      if (v.web.voiceURI) {
+        const vs = window.speechSynthesis.getVoices();
+        const found = vs.find((x) => x.voiceURI === v.web.voiceURI);
+        if (found) u.voice = found;
+      }
+      window.speechSynthesis.speak(u);
+      toast({
+        title: 'Browser voice used',
+        description: 'Neural voice service is offline — start scripts/serve_tts.py for Kokoro voices.',
+      });
+    } else {
+      toast({ title: 'Voice service offline', description: 'Start scripts/serve_tts.py to enable neural voices.' });
     }
   };
+
+  const grouped = (Object.keys(ACTION_CATEGORIES) as (keyof typeof ACTION_CATEGORIES)[]).map((cat) => ({
+    cat,
+    label: ACTION_CATEGORIES[cat],
+    actions: (Object.keys(ACTION_META) as BeatAction[]).filter((a) => ACTION_META[a].category === cat),
+  }));
 
   return (
     <div className="flex flex-col gap-3">
       <p className="text-xs leading-relaxed text-muted-foreground">
-        Lines play in order. Pick who speaks, what they feel and what they do —
-        the story voices itself when you press play.
+        Lines play in order with real neural voices. Pick who speaks, how they
+        feel and what they do — interactions even need a partner.
       </p>
 
       {shot.beats.length === 0 && (
@@ -113,6 +144,8 @@ export function DialoguePanel({
       <ol className="flex flex-col gap-2.5">
         {shot.beats.map((beat, i) => {
           const ch = beat.characterId ? characters[beat.characterId] : null;
+          const meta = ACTION_META[beat.action];
+          const needsTarget = !!meta?.needsTarget;
           const active = beat.id === selectedBeatId;
           return (
             <li
@@ -233,21 +266,59 @@ export function DialoguePanel({
                   <Label className="text-[11px] text-muted-foreground">Action</Label>
                   <Select
                     value={beat.action}
-                    onValueChange={(v) => patchBeat(beat.id, { action: v as BeatAction })}
+                    onValueChange={(v) => {
+                      const a = v as BeatAction;
+                      patchBeat(beat.id, {
+                        action: a,
+                        targetId: ACTION_META[a]?.needsTarget ? (beat.targetId ?? shot.cast.find((c) => c.characterId !== beat.characterId)?.id ?? null) : null,
+                      });
+                    }}
                   >
                     <SelectTrigger className="mt-1 h-8 w-full text-xs">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {(Object.keys(ACTION_LABELS) as BeatAction[]).map((a) => (
-                        <SelectItem key={a} value={a} className="text-xs">
-                          {ACTION_LABELS[a]}
-                        </SelectItem>
+                      {grouped.map((g) => (
+                        <div key={g.cat}>
+                          <p className="px-2 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                            {g.label}
+                          </p>
+                          {g.actions.map((a) => (
+                            <SelectItem key={a} value={a} className="text-xs">
+                              {ACTION_META[a].label}
+                            </SelectItem>
+                          ))}
+                        </div>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
               </div>
+
+              {needsTarget && (
+                <div className="mt-2">
+                  <Label className="text-[11px] text-muted-foreground">
+                    Interaction partner
+                  </Label>
+                  <Select
+                    value={beat.targetId ?? undefined}
+                    onValueChange={(v) => patchBeat(beat.id, { targetId: v })}
+                  >
+                    <SelectTrigger className="mt-1 h-8 w-full text-xs">
+                      <SelectValue placeholder="Pick a partner…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {shot.cast
+                        .filter((c) => c.characterId !== beat.characterId)
+                        .map((c) => (
+                          <SelectItem key={c.id} value={c.id} className="text-xs">
+                            {characters[c.characterId]?.name ?? 'Missing actor'}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
               <Button
                 variant="ghost"
@@ -255,7 +326,7 @@ export function DialoguePanel({
                 className="mt-2 gap-1.5 text-xs text-muted-foreground"
                 onClick={(e) => {
                   e.stopPropagation();
-                  testVoice(beat);
+                  void testVoice(beat);
                 }}
                 disabled={!beat.text.trim()}
               >

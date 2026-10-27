@@ -1,17 +1,21 @@
 import type { Character, Project, Shot } from '@/lib/types';
 import { uid } from '@/lib/types';
+import { buildMaxRexProject, STORY_CHARACTERS } from '@/lib/story-max-rex';
 
 export function makeCharacter(partial: Partial<Character> & { name: string }): Character {
   return {
     id: uid(),
+    kind: partial.kind ?? 'human',
+    species: partial.species,
     look: {
-      skin: '#C68B59',
+      skin: '#F2C879',
       hair: 'short',
       hairColor: '#1E1E24',
       outfit: 'tee',
       outfitColor: '#0F9D8C',
       pantsColor: '#3A3F4A',
       glasses: false,
+      age: 'adult',
       ...(partial.look ?? {}),
     },
     voice: { voiceURI: '', rate: 1, pitch: 1, ...(partial.voice ?? {}) },
@@ -38,105 +42,17 @@ export function newProject(name = 'Untitled story'): Project {
   return { id: uid(), name, createdAt: now, updatedAt: now, shots: [emptyShot()] };
 }
 
+/** Demo cast + story that ships with the app */
 export function seedCharacters(): Character[] {
-  return [
-    makeCharacter({
-      name: 'Maya',
-      look: {
-        skin: '#C68B59',
-        hair: 'long',
-        hairColor: '#1E1E24',
-        outfit: 'dress',
-        outfitColor: '#0F9D8C',
-        pantsColor: '#3A3F4A',
-        glasses: false,
-      },
-      voice: { voiceURI: '', rate: 1, pitch: 1.18 },
-    }),
-    makeCharacter({
-      name: 'Leo',
-      look: {
-        skin: '#F6D3B8',
-        hair: 'short',
-        hairColor: '#6B4423',
-        outfit: 'hoodie',
-        outfitColor: '#7C9A3D',
-        pantsColor: '#5B4636',
-        glasses: true,
-      },
-      voice: { voiceURI: '', rate: 1, pitch: 0.82 },
-    }),
-  ];
+  return STORY_CHARACTERS.map((c) => ({ ...c, look: { ...c.look }, voice: { ...c.voice } }));
 }
 
-export function seedProject(characters: Character[]): Project {
-  const [maya, leo] = characters;
-  const now = Date.now();
-  const project: Project = {
-    id: uid(),
-    name: 'The Midnight Scoop (sample)',
-    createdAt: now,
-    updatedAt: now,
-    shots: [
-      {
-        id: uid(),
-        kind: 'title',
-        backgroundId: 'stage',
-        camera: 'wide',
-        transition: 'fade',
-        title: 'The Midnight Scoop',
-        subtitle: 'A StoryForge short — press play',
-        cast: [],
-        beats: [],
-      },
-      {
-        id: uid(),
-        kind: 'scene',
-        backgroundId: 'cafe',
-        camera: 'wide',
-        transition: 'fade',
-        title: '',
-        subtitle: '',
-        cast: [
-          { id: uid(), characterId: maya.id, position: 'left', emotion: 'happy', enter: 'walkLeft' },
-          { id: uid(), characterId: leo.id, position: 'right', emotion: 'neutral', enter: 'none' },
-        ],
-        beats: [
-          { id: uid(), characterId: maya.id, text: 'Leo! You are not going to believe what I just saw outside.', emotion: 'surprised', action: 'none' },
-          { id: uid(), characterId: leo.id, text: 'Try me. Was it another cat stuck in a tree?', emotion: 'happy', action: 'wave' },
-          { id: uid(), characterId: maya.id, text: 'The midnight scoop truck drove off with the whole street of newspapers!', emotion: 'angry', action: 'none' },
-        ],
-      },
-      {
-        id: uid(),
-        kind: 'scene',
-        backgroundId: 'city-night',
-        camera: 'closeup',
-        transition: 'slide',
-        title: '',
-        subtitle: '',
-        cast: [
-          { id: uid(), characterId: maya.id, position: 'center', emotion: 'scared', enter: 'none' },
-          { id: uid(), characterId: leo.id, position: 'right', emotion: 'surprised', enter: 'none' },
-        ],
-        beats: [
-          { id: uid(), characterId: leo.id, text: 'Wait… the news truck? At midnight?', emotion: 'surprised', action: 'none' },
-          { id: uid(), characterId: maya.id, text: 'And Leo… nobody was driving it.', emotion: 'scared', action: 'shake' },
-          { id: uid(), characterId: null, text: 'To be continued…', emotion: 'inherit', action: 'none' },
-        ],
-      },
-      {
-        id: uid(),
-        kind: 'title',
-        backgroundId: 'sunset-hill',
-        camera: 'zoom',
-        transition: 'fade',
-        title: 'To be continued…',
-        subtitle: 'Made with StoryForge Studio',
-        cast: [],
-        beats: [],
-      },
-    ],
-  };
-  return project;
+export function seedProject(): Project {
+  return buildMaxRexProject();
+}
+
+/** Legacy signature kept for compatibility */
+export function seedProjectWith(characters: Character[]): Project {
+  void characters;
+  return buildMaxRexProject();
 }

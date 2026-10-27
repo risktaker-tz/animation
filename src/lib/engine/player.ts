@@ -1,25 +1,29 @@
-import type { Beat, Character, Project } from '@/lib/types';
-import { NARRATOR_VOICE } from '@/lib/types';
+import type { Character, Project } from '@/lib/types';
 import {
-  drawFrame,
-  restingVisuals,
-  POSITION_X,
-  type CastVisual,
-} from './renderer';
+  buildTimeline,
+  frameStateAt,
+  estimateMs,
+  type Timeline,
+} from './director';
 import { preloadProjectAssets } from './images';
-import { speak, estimateMs, stopAllSpeech, delay } from './tts';
+import {
+  prefetchScript,
+  resolveVoice,
+  scheduleBuffers,
+  resumeMasterAudio,
+  playAnimalSfx,
+  stopAllSpeech,
+  bufferCache,
+  type ScheduledAudio,
+} from './voice';
+import { isAnimal } from '@/lib/types';
+import { drawFrame, type CastVisual } from './renderer';
 
 export interface PlayerState {
   playing: boolean;
   shotIndex: number;
   beatId: string | null;
-}
-
-interface Anim {
-  castId: string;
-  kind: 'walkLeft' | 'walkRight' | 'fade' | 'exit' | 'wave' | 'jump' | 'nod' | 'shake';
-  start: number;
-  dur: number;
+  progress: number; // 0..1 through the whole story
 }
 
 interface PlayerCallbacks {
@@ -27,35 +31,32 @@ interface PlayerCallbacks {
   onEnd: () => void;
 }
 
-const ENTER_MS = 1100;
-const TRANSITION_MS = 620;
-const EXIT_MS = 950;
-
-function easeOutCubic(p: number): number {
-  return 1 - Math.pow(1 - p, 3);
+export interface PlayerOptions {
+  ttsEnabled: boolean;
+  musicEnabled?: boolean;
 }
 
+/**
+ * Deterministic story player.
+ * The timeline is computed up-front from the (optionally pre-rendered) neural
+ * voice durations, so visuals and audio stay perfectly in sync — on screen and
+ * in exported video alike.
+ */
 export class StoryPlayer {
-  private visuals: CastVisual[] = [];
-  private base = new Map<string, { x: number; footY: number; drawH: number }>();
-  private anims: Anim[] = [];
-  private beatText: string | null = null;
-  private beatCharacterId: string | null = null;
-  private speakingCharacterId: string | null = null;
-  private talkOpen = 0;
-  private transitionProgress = 1;
-  private cameraProgress = 1;
-  private shotStartAt = 0;
+  private timeline: Timeline | null = null;
+  private raf = 0;
   private cancelled = false;
   private running = false;
-  private raf = 0;
-  private currentHandle: { cancel: () => void } | null = null;
+  private startClock = 0;
+  private audioStop: ScheduledAudio | null = null;
+  private sfxTimers: ReturnType<typeof setTimeout>[] = [];
+  private state: PlayerState = { playing: false, shotIndex: 0, beatId: null, progress: 0 };
 
   constructor(
     private canvas: HTMLCanvasElement,
     private project: Project,
     private characters: Record<string, Character>,
-    private opts: { ttsEnabled: boolean },
+    private opts: PlayerOptions,
     private cbs: PlayerCallbacks
   ) {}
 
@@ -65,21 +66,25 @@ export class StoryPlayer {
 
   async play(): Promise<void> {
     if (this.running) return;
-    await preloadProjectAssets(this.project, this.characters);
     this.cancelled = false;
     this.running = true;
-    const ctx = this.canvas.getContext('2d');
-    if (!ctx) return;
-    this.loop(ctx);
+    this.emit({ ...this.state, playing: true });
+
     try {
-      await this.timeline();
-    } catch {
-      /* timeline cancelled or errored — stop quietly */
+      await preloadProjectAssets(this.project, this.characters);
+      const { durations } = await this.prepareAudio();
+      this.timeline = buildTimeline(this.project, this.characters, durations);
+      this.startAudio(durations);
+      await this.runLoop();
+    } catch (e) {
+      console.error('[StoryPlayer] playback failed:', e);
     }
+
     if (!this.cancelled) {
       this.cbs.onEnd();
     }
     this.running = false;
+    this.emit({ ...this.state, playing: false });
     this.paintStaticTail();
   }
 
@@ -87,247 +92,148 @@ export class StoryPlayer {
     this.cancelled = true;
     this.running = false;
     cancelAnimationFrame(this.raf);
-    this.currentHandle?.cancel();
-    this.currentHandle = null;
+    this.audioStop?.stop();
+    this.audioStop = null;
+    for (const t of this.sfxTimers) clearTimeout(t);
+    this.sfxTimers = [];
     stopAllSpeech();
-    this.speakingCharacterId = null;
-    this.anims = [];
   }
 
-  // ------------------------------------------------------------ timeline
+  // ------------------------------------------------------------ audio
 
-  private async timeline(): Promise<void> {
-    const shots = this.project.shots;
-    for (let si = 0; si < shots.length; si++) {
-      if (this.cancelled) return;
-      const shot = shots[si];
-      this.emit({ playing: true, shotIndex: si, beatId: null });
-      this.shotStartAt = performance.now();
-      this.cameraProgress = 0;
-      this.transitionProgress = shot.transition === 'cut' ? 1 : 0;
-      this.beatText = null;
-      this.beatCharacterId = null;
-      this.visuals = restingVisuals(shot);
-      this.base = new Map(
-        this.visuals.map((v) => [v.castId, { x: v.x, footY: v.footY, drawH: v.drawH }])
-      );
-      this.anims = [];
-
-      // entrances
-      let maxEnter = 0;
-      for (const entry of shot.cast) {
-        if (entry.enter === 'fade') {
-          this.anims.push({ castId: entry.id, kind: 'fade', start: performance.now(), dur: 550 });
-          maxEnter = Math.max(maxEnter, 550);
-          const v = this.visuals.find((x) => x.castId === entry.id);
-          if (v) v.alpha = 0;
-        } else if (entry.enter === 'walkLeft') {
-          this.anims.push({ castId: entry.id, kind: 'walkLeft', start: performance.now(), dur: ENTER_MS });
-          maxEnter = Math.max(maxEnter, ENTER_MS);
-        } else if (entry.enter === 'walkRight') {
-          this.anims.push({ castId: entry.id, kind: 'walkRight', start: performance.now(), dur: ENTER_MS });
-          maxEnter = Math.max(maxEnter, ENTER_MS);
+  /** Pre-render every spoken line; fall back to estimates per line. */
+  private async prepareAudio(): Promise<{ durations: Record<string, number> }> {
+    const durations: Record<string, number> = {};
+    const lines: { beatId: string; text: string; characterId: string | null }[] = [];
+    for (const shot of this.project.shots) {
+      for (const beat of shot.beats) {
+        if (beat.text) {
+          lines.push({ beatId: beat.id, text: beat.text, characterId: beat.characterId });
         }
       }
+    }
+    if (!this.opts.ttsEnabled || lines.length === 0) {
+      for (const l of lines) durations[l.beatId] = estimateMs(l.text);
+      return { durations };
+    }
 
-      await Promise.all([
-        this.animate(TRANSITION_MS, (p) => {
-          this.transitionProgress = p;
-        }),
-        delay(maxEnter),
-      ]);
-      if (this.cancelled) return;
+    const { durations: neural } = await prefetchScript(lines, this.characters);
+    // merge: use neural durations where available, estimates otherwise
+    for (const l of lines) {
+      durations[l.beatId] = neural[l.beatId] ?? estimateMs(l.text);
+    }
+    return { durations };
+  }
 
+  /** Schedule voice lines + animal SFX against the master WebAudio graph. */
+  private startAudio(durations: Record<string, number>): void {
+    if (!this.opts.ttsEnabled || !this.timeline) return;
+    resumeMasterAudio();
+    const cues: { buffer: AudioBuffer; startMs: number; gain?: number }[] = [];
+    for (const cue of this.timeline.audio) {
+      const ch = cue.characterId ? this.characters[cue.characterId] : null;
+      const v = resolveVoice(ch);
+      const key = `${v.voiceId}|${v.speed.toFixed(2)}|${v.pitchShift.toFixed(2)}|${cue.text}`;
+      const buf = bufferCache.get(key);
+      if (buf) cues.push({ buffer: buf, startMs: cue.startMs });
+    }
+    this.audioStop = cues.length ? scheduleBuffers(cues) : null;
+
+    // animal SFX at exact offsets
+    for (const shot of this.project.shots) {
       for (const beat of shot.beats) {
-        if (this.cancelled) return;
-        await this.playBeat(beat);
-        if (this.cancelled) return;
-        await delay(260);
+        if (!beat.characterId) continue;
+        const ch = this.characters[beat.characterId];
+        if (!ch || !isAnimal(ch)) continue;
+        if (!['bark', 'meow', 'chirp'].includes(beat.action)) continue;
+        const t = this.timeline.beats.find((b) => b.beatId === beat.id);
+        if (!t) continue;
+        const at = t.startMs + 120;
+        this.sfxTimers.push(setTimeout(() => playAnimalSfx(ch.species ?? 'dog'), at));
       }
-      if (this.cancelled) return;
-      await delay(520);
     }
   }
 
-  private async playBeat(beat: Beat): Promise<void> {
-    this.emit({ playing: true, shotIndex: -1, beatId: beat.id });
-    const now = performance.now();
-    const visual = beat.characterId
-      ? this.visuals.find((v) => v.characterId === beat.characterId)
-      : undefined;
-    const ch = beat.characterId ? this.characters[beat.characterId] : undefined;
+  // ------------------------------------------------------------ render loop
 
-    // per-beat emotion override
-    const prevEmotion = visual?.emotion;
-    if (visual && beat.emotion !== 'inherit' && beat.emotion) visual.emotion = beat.emotion;
+  private async runLoop(): Promise<void> {
+    if (!this.timeline) return;
+    const ctx = this.canvas.getContext('2d');
+    if (!ctx) return;
+    resumeMasterAudio();
+    const total = this.timeline.totalMs;
+    this.startClock = performance.now();
 
-    // beat action animation
-    let actionMs = 0;
-    if (beat.action === 'exit' && visual) {
-      this.anims.push({ castId: visual.castId, kind: 'exit', start: now, dur: EXIT_MS });
-      actionMs = EXIT_MS + 150;
-    } else if (beat.action !== 'none' && beat.action !== 'exit' && visual) {
-      const dur = beat.action === 'jump' ? 1150 : beat.action === 'wave' ? 1600 : 1100;
-      this.anims.push({ castId: visual.castId, kind: beat.action, start: now, dur });
-      actionMs = beat.action === 'wave' ? 900 : 500;
-    }
-
-    this.beatText = beat.text || null;
-    this.beatCharacterId = beat.characterId;
-
-    let waitMs = actionMs;
-    if (beat.text) {
-      this.speakingCharacterId = beat.characterId;
-      const voice = ch ? ch.voice : NARRATOR_VOICE;
-      const est = estimateMs(beat.text);
-      waitMs = Math.max(waitMs, est);
-      if (this.opts.ttsEnabled) {
-        const handle = speak(beat.text, voice);
-        this.currentHandle = handle;
-        await handle.promise;
-        this.currentHandle = null;
-      } else {
-        await delay(Math.min(est, 7000));
-      }
-      this.speakingCharacterId = null;
-    } else {
-      await delay(Math.max(350, waitMs));
-      waitMs = 0;
-    }
-    if (waitMs > 0 && beat.text) {
-      await delay(Math.max(0, actionMs - 0));
-    }
-
-    if (visual) {
-      if (prevEmotion) visual.emotion = prevEmotion;
-      if (beat.action === 'exit') visual.visible = false;
-    }
-    this.beatText = null;
-    this.beatCharacterId = null;
-    this.emit({ playing: true, shotIndex: -1, beatId: null });
-  }
-
-  private animate(ms: number, step: (p: number) => void): Promise<void> {
-    return new Promise((resolve) => {
-      const start = performance.now();
+    await new Promise<void>((resolve) => {
       const tick = () => {
         if (this.cancelled) return resolve();
-        const p = Math.min(1, (performance.now() - start) / ms);
-        step(easeOutCubic(p));
-        if (p < 1) requestAnimationFrame(tick);
-        else resolve();
+        const t = performance.now() - this.startClock;
+        if (t >= total) {
+          this.drawEnd(ctx);
+          return resolve();
+        }
+        this.drawAt(ctx, t);
+        this.raf = requestAnimationFrame(tick);
       };
-      requestAnimationFrame(tick);
-    });
-  }
-
-  // ------------------------------------------------------------ frame loop
-
-  private loop(ctx: CanvasRenderingContext2D): void {
-    const tick = () => {
-      if (this.cancelled) return;
-      this.updateAnims();
-      this.drawWithState(ctx);
       this.raf = requestAnimationFrame(tick);
-    };
-    this.raf = requestAnimationFrame(tick);
-  }
-
-  private updateAnims(): void {
-    const now = performance.now();
-    const keep: Anim[] = [];
-    for (const a of this.anims) {
-      const p = Math.min(1, (now - a.start) / a.dur);
-      const v = this.visuals.find((x) => x.castId === a.castId);
-      const b = this.base.get(a.castId);
-      if (!v || !b) continue;
-      switch (a.kind) {
-        case 'fade':
-          v.alpha = p;
-          break;
-        case 'walkLeft':
-        case 'walkRight': {
-          const from = a.kind === 'walkLeft' ? -240 : CANVAS_OFF_RIGHT;
-          v.x = b.x + (from - b.x) * (1 - easeOutCubic(p));
-          v.footY = b.footY - Math.abs(Math.sin(p * Math.PI * 5)) * 7;
-          break;
-        }
-        case 'exit': {
-          const dir = b.x >= 640 ? 1 : -1;
-          const target = dir > 0 ? CANVAS_OFF_RIGHT : -240;
-          v.x = b.x + (target - b.x) * p;
-          v.footY = b.footY - Math.abs(Math.sin(p * Math.PI * 4)) * 7;
-          if (p >= 1) v.visible = false;
-          break;
-        }
-        case 'wave':
-          v.rotation = Math.sin(p * Math.PI * 6) * 0.09;
-          break;
-        case 'jump':
-          v.footY = b.footY - Math.abs(Math.sin(p * Math.PI * 2)) * 46;
-          break;
-        case 'nod':
-          v.footY = b.footY - Math.abs(Math.sin(p * Math.PI * 3)) * 10;
-          v.rotation = Math.sin(p * Math.PI * 3) * 0.035;
-          break;
-        case 'shake':
-          v.x = b.x + Math.sin(p * Math.PI * 9) * 9 * (1 - p * 0.4);
-          break;
-      }
-      if (p < 1 && a.kind !== 'exit') keep.push(a);
-      if (a.kind === 'exit' && p < 1) keep.push(a);
-    }
-    this.anims = keep;
-
-    // camera progress for slow zoom
-    this.cameraProgress = Math.min(1, (now - this.shotStartAt) / 8000);
-
-    // mouth open oscillation while speaking
-    if (this.speakingCharacterId) {
-      const t = now / 1000;
-      this.talkOpen = 0.22 + 0.78 * Math.abs(Math.sin(t * 11.5)) * (0.6 + 0.4 * Math.sin(t * 2.7));
-    } else {
-      this.talkOpen = 0;
-    }
-  }
-
-  private drawWithState(ctx: CanvasRenderingContext2D): void {
-    drawFrame(ctx, {
-      shot: this.project.shots[Math.max(0, this.state.shotIndex)] ?? this.project.shots[0],
-      characters: this.characters,
-      visuals: this.visuals,
-      speakingCharacterId: this.speakingCharacterId,
-      talkOpen: this.talkOpen,
-      beatText: this.beatText,
-      beatCharacterId: this.beatCharacterId,
-      cameraProgress: this.cameraProgress,
-      transitionProgress: this.transitionProgress,
     });
+  }
+
+  private lastBeatId: string | null = null;
+  private lastShotIndex = -1;
+
+  private drawAt(ctx: CanvasRenderingContext2D, t: number): void {
+    if (!this.timeline) return;
+    const fs = frameStateAt(this.project, this.characters, this.timeline, t);
+    drawFrame(ctx, fs);
+    this.trackState(t, fs);
+  }
+
+  private drawEnd(ctx: CanvasRenderingContext2D): void {
+    if (!this.timeline) return;
+    const fs = frameStateAt(this.project, this.characters, this.timeline, this.timeline.totalMs - 1);
+    drawFrame(ctx, fs);
+  }
+
+  private trackState(t: number, fs: ReturnType<typeof frameStateAt>): void {
+    if (!this.timeline) return;
+    let shotIndex = this.lastShotIndex;
+    for (const s of this.timeline.shots) {
+      if (t >= s.startMs && t < s.endMs) {
+        shotIndex = s.index;
+        break;
+      }
+    }
+    const beatId = this.currentBeatId(t);
+    if (beatId !== this.lastBeatId || shotIndex !== this.lastShotIndex) {
+      this.lastBeatId = beatId;
+      this.lastShotIndex = shotIndex;
+      this.emit({
+        playing: true,
+        shotIndex,
+        beatId,
+        progress: Math.min(1, t / this.timeline.totalMs),
+      });
+    }
+  }
+
+  private currentBeatId(t: number): string | null {
+    if (!this.timeline) return null;
+    const b = this.timeline.beats.find((x) => t >= x.startMs && t < x.endMs);
+    return b?.beatId ?? null;
+  }
+
+  private emit(s: PlayerState): void {
+    this.state = { ...s };
+    this.cbs.onState({ ...this.state });
   }
 
   private paintStaticTail(): void {
     const ctx = this.canvas.getContext('2d');
-    if (!ctx || this.cancelled) return;
-    const shot = this.project.shots[Math.max(0, this.state.shotIndex)];
-    if (!shot) return;
-    this.visuals = restingVisuals(shot);
-    this.beatText = null;
-    this.beatCharacterId = null;
-    this.speakingCharacterId = null;
-    this.transitionProgress = 1;
-    this.cameraProgress = 1;
-    this.drawWithState(ctx);
-  }
-
-  // ------------------------------------------------------------ state
-
-  private state: PlayerState = { playing: false, shotIndex: 0, beatId: null };
-
-  private emit(s: PlayerState): void {
-    if (s.shotIndex >= 0) this.state = { ...this.state, shotIndex: s.shotIndex };
-    this.state = { ...this.state, beatId: s.beatId, playing: s.playing };
-    this.cbs.onState({ ...this.state });
+    if (!ctx || this.cancelled || !this.timeline) return;
+    const fs = frameStateAt(this.project, this.characters, this.timeline, this.timeline.totalMs - 1);
+    fs.beatText = null;
+    fs.beatCharacterId = null;
+    drawFrame(ctx, fs);
   }
 }
-
-const CANVAS_OFF_RIGHT = 1520;

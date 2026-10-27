@@ -23,6 +23,7 @@ import { ShotList } from '@/components/studio/shot-list';
 import { Inspector } from '@/components/studio/inspector';
 import { ExportDialog } from '@/components/studio/export-dialog';
 import { useStoryStore } from '@/lib/store';
+import { prefetchScript, resetTtsProbe, ttsServiceAvailable } from '@/lib/engine/voice';
 
 export function StudioView({
   projectId,
@@ -53,6 +54,28 @@ export function StudioView({
   const handleCanvasReady = useCallback((canvas: HTMLCanvasElement | null) => {
     canvasRef.current = canvas;
   }, []);
+
+  // warm the neural-voice cache for this story in the background so pressing
+  // play starts instantly (synthesis is serialized server-side)
+  useEffect(() => {
+    if (!project || !settings.ttsEnabled) return;
+    let dead = false;
+    void (async () => {
+      if (!(await ttsServiceAvailable())) return;
+      const lines: { beatId: string; text: string; characterId: string | null }[] = [];
+      for (const shot of project.shots) {
+        for (const b of shot.beats) {
+          if (b.text) lines.push({ beatId: b.id, text: b.text, characterId: b.characterId });
+        }
+      }
+      if (!lines.length) return;
+      await prefetchScript(lines, characters);
+      if (!dead) resetTtsProbe();
+    })();
+    return () => {
+      dead = true;
+    };
+  }, [project, characters, settings.ttsEnabled]);
 
   // shot selection is clamped at read time (safeIndex) so deletion is safe
   if (!project) {
