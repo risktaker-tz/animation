@@ -85,6 +85,7 @@ export type Pose =
   | 'idle'
   | 'walkA'
   | 'walkB'
+  | 'walkMid'
   | 'wave'
   | 'point'
   | 'hips'
@@ -193,9 +194,11 @@ function leftArm(pose: Pose, g: Geometry): ArmPose {
     case 'run':
       return { elbow: [sx - 26, sy + 40], hand: [sx + 10, sy + 84] };
     case 'walkA': // left arm swings forward, right arm back
-      return { elbow: [sx - 6, sy + 46], hand: [sx + 34, sy + 108] };
+      return { elbow: [sx - 6, sy + 46], hand: [sx + 40, sy + 104] };
     case 'walkB': // left arm swings back
-      return { elbow: [sx - 20, sy + 52], hand: [sx - 26, sy + 128] };
+      return { elbow: [sx - 20, sy + 52], hand: [sx - 30, sy + 126] };
+    case 'walkMid': // passing pose — arms cross the body mid-swing
+      return { elbow: [sx - 12, sy + 50], hand: [sx + 2, sy + 116] };
     case 'idle':
     default:
       return { elbow: [sx - 14, sy + 90], hand: [sx - 4, sy + 178] };
@@ -442,23 +445,33 @@ function legs(look: CharacterLook, g: Geometry, pose: Pose, p: Palette): string 
       <rect x="${256 - g.hipHalfW - 6}" y="${g.hipY - 18}" width="${g.hipHalfW * 2 + 12}" height="34" rx="14" fill="${pc}"/>`;
   }
   if (pose === 'walkA') {
-    // left leg forward, right leg back
+    // contact: left leg planted forward, right leg trailing back
     const lx = 256 - g.hipHalfW + lw / 2;
     const rx2 = 256 + g.hipHalfW - lw / 2;
     return `
-      ${pantLeg(rx2, g.legTopY - 12, rx2 - 30, g.footY - 22)}
-      ${pantLeg(lx, g.legTopY - 12, lx + 26, g.footY - 12)}
-      ${shoe(rx2 - 34, g.footY - 14, -14)}
-      ${shoe(lx + 32, g.footY - 4, 8)}`;
+      ${pantLeg(rx2, g.legTopY - 12, rx2 - 38, g.footY - 26)}
+      ${pantLeg(lx, g.legTopY - 12, lx + 32, g.footY - 8)}
+      ${shoe(rx2 - 42, g.footY - 20, -16)}
+      ${shoe(lx + 38, g.footY - 2, 7)}`;
   }
   if (pose === 'walkB') {
     const lx = 256 - g.hipHalfW + lw / 2;
     const rx2 = 256 + g.hipHalfW - lw / 2;
     return `
-      ${pantLeg(lx, g.legTopY - 12, lx - 26, g.footY - 18)}
-      ${pantLeg(rx2, g.legTopY - 12, rx2 + 26, g.footY - 12)}
-      ${shoe(lx - 30, g.footY - 10, -10)}
-      ${shoe(rx2 + 32, g.footY - 4, 10)}`;
+      ${pantLeg(lx, g.legTopY - 12, lx - 38, g.footY - 26)}
+      ${pantLeg(rx2, g.legTopY - 12, rx2 + 32, g.footY - 8)}
+      ${shoe(lx - 42, g.footY - 20, -16)}
+      ${shoe(rx2 + 38, g.footY - 2, 7)}`;
+  }
+  if (pose === 'walkMid') {
+    // passing: legs gather under the body, one knee lifts through
+    const lx = 256 - g.hipHalfW + lw / 2;
+    const rx2 = 256 + g.hipHalfW - lw / 2;
+    return `
+      ${pantLeg(lx, g.legTopY - 12, lx - 4, g.footY - 8)}
+      ${pantLeg(rx2, g.legTopY - 12, rx2 + 10, g.footY - 30)}
+      ${shoe(lx - 6, g.footY - 2, 2)}
+      ${shoe(rx2 + 14, g.footY - 24, -12)}`;
   }
   const lx = 256 - g.hipHalfW + lw / 2;
   const rx2 = 256 + g.hipHalfW - lw / 2;

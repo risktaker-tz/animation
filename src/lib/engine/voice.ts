@@ -133,6 +133,119 @@ export function ensureUniqueVoices(characters: Character[]): Character[] {
   return characters;
 }
 
+// ---------------------------------------------------------------- web speech
+
+export interface WebSpeechPlan {
+  voice: SpeechSynthesisVoice | null;
+  rate: number;
+  pitch: number;
+  volume: number;
+}
+
+const FEMALE_VOICE_HINT =
+  /female|woman|zira|susan|hazel|libby|sonia|aria|jenny|emma(?!s)|ava|allison|samantha|victoria|karen|moira|tessa|fiona|serena|kate|stephanie|joana|nicky|shelley/i;
+const MALE_VOICE_HINT =
+  /\bmale\b|man\b|david|mark|guy|ryan|daniel|george|james|fred|oliver|thomas|alex|aaron|arthur|gordon|rishi|william|liam/i;
+
+function listEnglishVoices(): SpeechSynthesisVoice[] {
+  if (!ttsSupported()) return [];
+  try {
+    return window.speechSynthesis.getVoices().filter((v) => v.lang.toLowerCase().startsWith('en'));
+  } catch {
+    return [];
+  }
+}
+
+interface WebAssignment {
+  uri: string;
+  rate: number;
+  pitch: number;
+}
+
+/** characterId → assigned browser voice (keeps voices unique across the cast) */
+const webAssignments = new Map<string, WebAssignment>();
+/** refresh when the browser loads its voice list late (Chrome populates async) */
+let voicesChangedHooked = false;
+
+function hookVoicesChanged(onVoices: () => void): void {
+  if (voicesChangedHooked || !ttsSupported()) return;
+  voicesChangedHooked = true;
+  try {
+    window.speechSynthesis.addEventListener('voiceschanged', () => {
+      webAssignments.clear();
+      onVoices();
+    });
+  } catch {
+    /* older engines */
+  }
+}
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+/**
+ * Deterministic browser-voice plan for a cast member. Every character gets a
+ * DIFFERENT English system voice (gender-matched by name when possible);
+ * pitch/rate carry over from the character's voice config so the playback
+ * personality matches the neural voice. Used when no TTS service exists —
+ * e.g. the static GitHub Pages build.
+ */
+export function pickWebVoice(ch: Character | null | undefined, onChange?: () => void): WebSpeechPlan {
+  hookVoicesChanged(() => onChange?.());
+  if (!ch) {
+    const voices = listEnglishVoices();
+    const deep =
+      voices.find((v) => MALE_VOICE_HINT.test(v.name) && /en-(GB|AU)/i.test(v.lang)) ??
+      voices.find((v) => MALE_VOICE_HINT.test(v.name)) ??
+      voices[0] ??
+      null;
+    return { voice: deep, rate: 0.94, pitch: 0.85, volume: 1 };
+  }
+  const voices = listEnglishVoices();
+  const kid = ch.look.age === 'child';
+  const female = isAnimal(ch) ? ch.species !== 'dog' : guessGender(ch.name) === 'female';
+  const bucket = voices.filter((v) =>
+    female ? FEMALE_VOICE_HINT.test(v.name) : MALE_VOICE_HINT.test(v.name)
+  );
+  const pool = bucket.length ? bucket : voices;
+  const taken = new Set([...webAssignments.values()].map((a) => a.uri));
+  const pick = pool.find((v) => !taken.has(v.voiceURI)) ?? pool[0] ?? null;
+  const rate = clamp(ch.voice.rate || ch.voice.speed || 1, 0.55, 1.6);
+  const pitch = clamp(ch.voice.pitch || (kid ? 1.25 : 1), 0.4, 1.8);
+  if (pick) webAssignments.set(ch.id, { uri: pick.voiceURI, rate, pitch });
+  return { voice: pick, rate, pitch, volume: 1 };
+}
+
+export interface WebSpeechHandle {
+  cancel: () => void;
+}
+
+/** Speak one line through the browser's built-in speech synthesis. */
+export function speakWebSpeech(text: string, plan: WebSpeechPlan, onEnd?: () => void): WebSpeechHandle | null {
+  if (!ttsSupported() || !text) return null;
+  try {
+    const u = new SpeechSynthesisUtterance(text);
+    if (plan.voice) u.voice = plan.voice;
+    u.rate = plan.rate;
+    u.pitch = plan.pitch;
+    u.volume = plan.volume;
+    if (onEnd) u.onend = () => onEnd();
+    window.speechSynthesis.speak(u);
+    return {
+      cancel: () => {
+        try {
+          window.speechSynthesis.cancel();
+        } catch {
+          /* noop */
+        }
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------- audio graph
 
 interface MasterGraph {

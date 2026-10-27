@@ -27,7 +27,7 @@ export const metadata: Metadata = {
   ],
   authors: [{ name: "StoryForge Studio" }],
   icons: {
-    icon: "/favicon.svg",
+    icon: "favicon.svg",
   },
   openGraph: {
     title: "StoryForge Studio",

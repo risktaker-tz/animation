@@ -15,7 +15,10 @@ import {
   stopAllSpeech,
   bufferCache,
   ensureUniqueVoices,
+  pickWebVoice,
+  speakWebSpeech,
   type ScheduledAudio,
+  type WebSpeechHandle,
 } from './voice';
 import { isAnimal } from '@/lib/types';
 import { drawFrame, type CastVisual } from './renderer';
@@ -51,6 +54,8 @@ export class StoryPlayer {
   private startClock = 0;
   private audioStop: ScheduledAudio | null = null;
   private sfxTimers: ReturnType<typeof setTimeout>[] = [];
+  private speechTimers: ReturnType<typeof setTimeout>[] = [];
+  private speechHandles: WebSpeechHandle[] = [];
   private state: PlayerState = { playing: false, shotIndex: 0, beatId: null, progress: 0 };
 
   constructor(
@@ -98,6 +103,10 @@ export class StoryPlayer {
     this.audioStop = null;
     for (const t of this.sfxTimers) clearTimeout(t);
     this.sfxTimers = [];
+    for (const t of this.speechTimers) clearTimeout(t);
+    this.speechTimers = [];
+    for (const h of this.speechHandles) h?.cancel();
+    this.speechHandles = [];
     stopAllSpeech();
   }
 
@@ -127,19 +136,36 @@ export class StoryPlayer {
     return { durations };
   }
 
-  /** Schedule voice lines + animal SFX against the master WebAudio graph. */
+  /** Schedule voice lines + animal SFX against the master WebAudio graph.
+   *  Lines with no neural buffer (e.g. static hosting) are spoken through the
+   *  browser's speech synthesis at their cue time, each with its own voice. */
   private startAudio(durations: Record<string, number>): void {
     if (!this.opts.ttsEnabled || !this.timeline) return;
     resumeMasterAudio();
     const cues: { buffer: AudioBuffer; startMs: number; gain?: number }[] = [];
+    const webCues: { text: string; characterId: string | null; startMs: number }[] = [];
     for (const cue of this.timeline.audio) {
       const ch = cue.characterId ? this.characters[cue.characterId] : null;
       const v = resolveVoice(ch);
       const key = `${v.voiceId}|${v.speed.toFixed(2)}|${v.pitchShift.toFixed(2)}|${cue.text}`;
       const buf = bufferCache.get(key);
       if (buf) cues.push({ buffer: buf, startMs: cue.startMs });
+      else webCues.push({ text: cue.text, characterId: cue.characterId, startMs: cue.startMs });
     }
     this.audioStop = cues.length ? scheduleBuffers(cues) : null;
+
+    // browser-voice fallback lines at exact offsets (unique voice per character)
+    for (const wc of webCues) {
+      const ch = wc.characterId ? this.characters[wc.characterId] ?? null : null;
+      const plan = pickWebVoice(ch);
+      this.speechTimers.push(
+        setTimeout(() => {
+          if (this.cancelled) return;
+          const h = speakWebSpeech(wc.text, plan);
+          if (h) this.speechHandles.push(h);
+        }, wc.startMs)
+      );
+    }
 
     // animal SFX at exact offsets
     for (const shot of this.project.shots) {

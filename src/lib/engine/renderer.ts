@@ -31,30 +31,125 @@ function easeSine(k: number): number {
   return -(Math.cos(Math.PI * c) - 1) / 2;
 }
 
-/** Horizontal body scale while pivoting between facings (cartoon turn-around) */
-export function facingBodyScale(v: CastVisual): number {
-  if (!v.facing) return 1;
-  const to = FACING_SCALE[v.facing];
-  const from = FACING_SCALE[v.facingFrom ?? v.facing];
-  if (from === to) return to;
-  return from + (to - from) * easeSine(v.turnK ?? 1);
+function easeOutCubic(k: number): number {
+  const c = Math.max(0, Math.min(1, k));
+  return 1 - Math.pow(1 - c, 3);
 }
 
-/** Face visibility (0..1) — fades out at edge-on moments of a turn */
-function faceVisibility(bodyScale: number, v: CastVisual): number {
-  const turningToBack = v.facing === 'back' || v.facingFrom === 'back';
-  if (turningToBack && (v.turnK ?? 1) >= 0.999 && v.facing === 'back') return 0;
-  if (!turningToBack) return 1;
-  return Math.max(0, Math.min(1, (Math.abs(bodyScale) - 0.3) / 0.24));
+/**
+ * One staged cartoon pivot, driven by progress k (0..1):
+ *   1. anticipation — the body counter-rotates AWAY from the turn before committing;
+ *   2. pivot — the width follows the angle being turned through: a quarter turn
+ *      (front↔side) merely narrows, while a real about-face (side↔side or any↔back)
+ *      whips through a thin edge-on moment; knees bend (weight dip) mid-turn;
+ *   3. settle — a tiny recoil back into stance.
+ * This reads as a person turning on the spot instead of a flat cutout rotating.
+ */
+function stagedTurn(
+  from: number,
+  to: number,
+  kRaw: number
+): { scale: number; dip: number; rot: number } {
+  const k = Math.max(0, Math.min(1, kRaw));
+  const settled = { scale: to, dip: 0, rot: 0 };
+  if (from === to || k >= 1) return settled;
+  const signFrom = Math.sign(from) || 1;
+  const signTo = Math.sign(to) || 1;
+  const wFrom = Math.abs(from);
+  const wTo = Math.abs(to);
+
+  // how deep the body narrows mid-pivot, by angle turned:
+  // quarter turn (front↔side) barely narrows · about-face whips to a sliver
+  const crossing = signFrom !== signTo;
+  const toBack = to < 0 && wTo >= 0.99;
+  const fromBack = from < 0 && wFrom >= 0.99;
+  const bothSides = wFrom < 0.99 && wTo < 0.99;
+  const depth = toBack || fromBack ? 0.93 : bothSides ? 0.9 : 0.24;
+
+  const eased = easeSine(k);
+  let width = wFrom + (wTo - wFrom) * eased;
+  width *= 1 - depth * Math.sin(Math.PI * k);
+  width = Math.max(0.085, width);
+
+  // the mirror flips at the visual midpoint of the swing
+  const scale = (k < 0.5 ? signFrom : signTo) * width;
+
+  // weight dip while pivoting (knees bend through the middle of the turn)
+  const dip = Math.sin(Math.PI * Math.max(0, Math.min(1, (k - 0.14) / 0.72)));
+
+  // counter-lean during anticipation + tiny recoil on settle
+  const dirSign = signTo >= signFrom ? 1 : -1;
+  const antic = k < 0.24 ? Math.sin((k / 0.24) * Math.PI) : 0;
+  const recoil = k > 0.78 ? Math.sin(((k - 0.78) / 0.22) * Math.PI) : 0;
+  const rot = -dirSign * 0.045 * antic + dirSign * 0.014 * recoil;
+
+  return { scale, dip, rot };
 }
 
-/** 3/4 head-turn amount (0..1) implied by the current facing pivot */
-function faceYaw(v: CastVisual): number {
-  const side = (f?: Facing) => (f === 'left' || f === 'right' ? 1 : 0);
-  const from = side(v.facingFrom ?? v.facing);
-  const to = side(v.facing);
-  if (from === to) return to;
-  return from + (to - from) * easeSine(v.turnK ?? 1);
+export interface TurnDynamics {
+  /** horizontal body scale at this instant (signed) */
+  bodyScale: number;
+  /** 3/4 head-turn amount 0 (front) .. 1 (profile) */
+  yaw: number;
+  /** face overlay opacity 0..1 (fades at edge-on / hidden behind) */
+  faceVis: number;
+  /** weight dip in px (applied as a squash toward the feet) */
+  dipPx: number;
+  /** extra body rotation in radians from the pivot choreography */
+  rot: number;
+  /** true when the back-view sprite should be shown */
+  useBack: boolean;
+}
+
+const sideOf = (f: Facing) => (f === 'left' || f === 'right' ? 1 : 0);
+
+/** Full turn choreography for a cast visual at its current turnK. */
+export function turnDynamics(v: CastVisual): TurnDynamics {
+  const facing = v.facing ?? 'front';
+  const facingFrom = v.facingFrom ?? facing;
+  const to = FACING_SCALE[facing];
+  const from = FACING_SCALE[facingFrom];
+  const { scale, dip, rot } = stagedTurn(from, to, v.turnK ?? 1);
+  const bodyScale = scale;
+
+  // the head arrives before the shoulders finish — people look first, then turn
+  const yawK = easeOutCubic(Math.max(0, Math.min(1, ((v.turnK ?? 1) - 0.04) / 0.55)));
+  const yaw = sideOf(facingFrom) + (sideOf(facing) - sideOf(facingFrom)) * yawK;
+
+  // face handling by turn type:
+  //  · quarter turns keep the face (dimmed at the mirror flip, yaw sells the look)
+  //  · about-faces fade through the edge-on moment
+  const crossing = Math.sign(from) !== Math.sign(to);
+  const toBack = facing === 'back';
+  const fromBack = facingFrom === 'back';
+  let faceVis: number;
+  if (toBack || fromBack) {
+    faceVis = Math.max(0, Math.min(1, (Math.abs(bodyScale) - 0.34) / 0.22));
+    if (toBack && (v.turnK ?? 1) >= 0.999) faceVis = 0;
+  } else if (crossing) {
+    faceVis = 1 - 0.6 * Math.sin(Math.PI * Math.min(1, v.turnK ?? 1));
+  } else {
+    faceVis = 1;
+  }
+
+  // sprite swaps at the visual midpoint of the swing (respects the ease curve)
+  const useBack = toBack ? (v.turnK ?? 1) >= 0.5 : fromBack ? (v.turnK ?? 1) < 0.5 : false;
+
+  return { bodyScale, yaw, faceVis, dipPx: dip * 4.2, rot, useBack };
+}
+
+/**
+ * Staged flip for side-view animal sprites (front/back views don't exist).
+ * Returns the signed horizontal scale — passes through a thin edge-on sliver
+ * instead of popping from one side to the other.
+ */
+export function animalTurnScale(v: CastVisual): number {
+  const to = v.facing === 'left' ? -1 : v.facing === 'right' ? 1 : v.flip ? -1 : 1;
+  const from =
+    v.facingFrom === 'left' ? -1 : v.facingFrom === 'right' ? 1 : to;
+  const { scale } = stagedTurn(from, to, v.turnK ?? 1);
+  // keep a minimum sliver so the sprite never collapses to nothing
+  return Math.sign(scale) * Math.max(0.14, Math.abs(scale));
 }
 
 export type FxKind =
@@ -584,15 +679,17 @@ export function drawFrame(
       ctx.globalAlpha = v.alpha;
       ctx.translate(v.x, v.footY);
       const lean = v.lean ?? 0;
-      if (v.rotation || lean) ctx.rotate(v.rotation + lean);
       if (ch && isAnimal(ch)) {
+        if (v.rotation || lean) ctx.rotate(v.rotation + lean);
         const species = ch.species ?? 'dog';
         const drawH = animalDrawH(ch, v.position);
         const spriteH = ANIMAL_SPRITE_H[species];
         const scale = drawH / spriteH;
         const img = getCachedImage(animalKey(species, ch.look.skin, v.animalVariant ?? 'idle'));
         const w = img ? img.width : 300 * scale;
-        if (v.flip) ctx.scale(-1, 1);
+        // staged flip: pivots through a thin edge-on sliver instead of popping
+        const turnScale = animalTurnScale(v);
+        ctx.scale((v.scaleX ?? 1) * turnScale, v.scaleY ?? 1);
         if (img) {
           ctx.drawImage(img, -w / 2, -drawH + 8, w, drawH);
         } else {
@@ -602,19 +699,17 @@ export function drawFrame(
           ctx.fill();
         }
       } else {
+        // orientation: staged cartoon pivot — anticipation, whip-through with
+        // overshoot, weight dip, settle; head yaw leads the shoulders
+        const turn = turnDynamics(v);
+        if (v.rotation || lean || turn.rot) ctx.rotate(v.rotation + lean + turn.rot);
         const s = v.drawH / 768;
         const w = SPRITE_W * s;
-        // orientation: cartoon pivot (body squash-through), sprite view + face fade
-        const bodyScale = facingBodyScale(v);
-        const k = Math.max(0, Math.min(1, v.turnK ?? 1));
-        const toBack = v.facing === 'back';
-        const fromBack = v.facingFrom === 'back' && !toBack;
-        const useBack = (toBack && k >= 0.5) || (fromBack && k < 0.5);
-        ctx.scale((v.scaleX ?? 1) * bodyScale, v.scaleY ?? 1);
+        ctx.scale((v.scaleX ?? 1) * turn.bodyScale, (v.scaleY ?? 1) * (1 - turn.dipPx / 520));
         let img = ch
-          ? getCachedImage(lookKey(ch.look, v.pose ?? 'idle', useBack ? 'back' : 'front'))
+          ? getCachedImage(lookKey(ch.look, v.pose ?? 'idle', turn.useBack ? 'back' : 'front'))
           : undefined;
-        if (!img && useBack && ch) {
+        if (!img && turn.useBack && ch) {
           // back sprite not rasterized yet — fall back to the front view
           img = getCachedImage(lookKey(ch.look, v.pose ?? 'idle', 'front'));
         }
@@ -624,7 +719,7 @@ export function drawFrame(
           placeholderSprite(ctx, v.drawH);
         }
         const talk = v.characterId === fs.speakingCharacterId ? fs.talkOpen : 0;
-        const faceVis = ch ? faceVisibility(bodyScale, v) : 0;
+        const faceVis = ch ? turn.faceVis : 0;
         if (ch && faceVis > 0.02) {
           ctx.save();
           ctx.globalAlpha *= faceVis;
@@ -634,7 +729,7 @@ export function drawFrame(
             look: ch.look,
             blinkOpen: blinkOpenAt(v.castId, fs.tMs),
             gaze: { dx: v.gazeDx ?? 0, dy: v.gazeDy ?? 0 },
-            yaw: faceYaw(v),
+            yaw: turn.yaw,
           });
           ctx.restore();
         }

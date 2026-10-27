@@ -66,11 +66,18 @@ async function main() {
     info.cues.find((c) => c.text.toLowerCase().includes(needle.toLowerCase())) ?? info.cues[0];
 
   const picks: Array<[string, number]> = [
+    ['entrance-walk-1', 120],
+    ['entrance-walk-2', 340],
+    ['entrance-walk-3', 560],
+    ['entrance-walk-4', 780],
     ['entrance-mom', findCue('Saturday morning').startMs + 480],
     ['write-arms', findCue('Addition. Spelling').startMs + 900],
     ['talk-to-mom-facing', findCue('Homework first').startMs + 1000],
+    ['pivot-turn-antic', findCue('Homework first').startMs + 60],
+    ['pivot-turn-mid', findCue('Homework first').startMs + 150],
+    ['pivot-turn-late', findCue('Homework first').startMs + 240],
+    ['pivot-turn-settle', findCue('Homework first').startMs + 340],
     ['kid-reply-facing', findCue('studying is for grown-ups').startMs + 1100],
-    ['pivot-turn', findCue('Homework first').startMs + 120],
     ['sneak', findCue('Operation Animal Time').startMs + 800],
     ['fetch-toss', findCue('Go get it').startMs + 500],
     ['fetch-run', findCue('Go get it').startMs + 1500],
@@ -81,7 +88,11 @@ async function main() {
     ['highfive-react', findCue('High five').startMs + 1750],
     ['read-book', findCue('Chapter One').startMs + 900],
     ['hug-contact', findCue('I love you').startMs + 1300],
-    ['exit-back-turn', findCue('tell everyone').startMs + 700],
+    ['hug-approach-1', findCue('I love you').startMs + 120],
+    ['hug-approach-2', findCue('I love you').startMs + 260],
+    ['hug-approach-3', findCue('I love you').startMs + 420],
+    ['hug-approach-4', findCue('I love you').startMs + 560],
+    ['exit-back-turn', findCue('tell everyone').startMs + 500],
     ['exit-back-walk', findCue('tell everyone').startMs + 1500],
   ];
 

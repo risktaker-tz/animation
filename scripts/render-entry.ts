@@ -21,6 +21,7 @@ ensureUniqueVoices(Object.values(characters));
 const project = buildMaxRexProject();
 let timeline: Timeline | null = null;
 let canvas: HTMLCanvasElement | null = null;
+let lastFrame: ReturnType<typeof frameStateAt> | null = null;
 
 function ensureImage(key: string, svg: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -42,7 +43,7 @@ async function preload(): Promise<void> {
   for (const shot of project.shots) {
     tasks.push(ensureImage(bgKey(shot.backgroundId), getBackground(shot.backgroundId).svg()));
   }
-  const poses = new Set<Pose>(['idle', 'walkA', 'walkB']);
+  const poses = new Set<Pose>(['idle', 'walkA', 'walkB', 'walkMid']);
   for (const shot of project.shots) {
     for (const b of shot.beats) {
       const p = POSE_FOR_ACTION[b.action];
@@ -94,8 +95,16 @@ const api = {
     if (!timeline || !canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    const fs = frameStateAt(project, characters, timeline, tMs);
-    drawFrame(ctx, fs);
+    lastFrame = frameStateAt(project, characters, timeline, tMs);
+    drawFrame(ctx, lastFrame);
+  },
+  debugVisuals(characterId: string) {
+    if (!lastFrame) return null;
+    const v = lastFrame.visuals.find((x) => x.characterId === characterId) ?? null;
+    if (!v) return null;
+    const { shot, characters: chars, visuals, ...rest } = lastFrame;
+    void shot; void chars; void visuals;
+    return { ...rest, visual: v };
   },
 };
 
