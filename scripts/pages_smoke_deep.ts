@@ -9,7 +9,9 @@ import { join } from 'node:path';
 const ROOT = '/home/z/my-project';
 const SERVE_DIR = join(ROOT, 'models', 'pages-test');
 const PORT = 8932;
-const BASE = `http://127.0.0.1:${PORT}/animation/`;
+// LIVE=1 → test the deployed GitHub Pages site instead of a local server
+const LIVE = !!process.env.LIVE;
+const BASE = LIVE ? 'https://risktaker-tz.github.io/animation/' : `http://127.0.0.1:${PORT}/animation/`;
 const CHROME = `${process.env.HOME}/.cache/ms-playwright/chromium-1200/chrome-linux64/chrome`;
 
 function wait(ms: number): Promise<void> {
@@ -30,13 +32,15 @@ async function waitForServer(url: string, tries = 40): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  rmSync(SERVE_DIR, { recursive: true, force: true });
-  mkdirSync(SERVE_DIR, { recursive: true });
-  symlinkSync(join(ROOT, 'out'), join(SERVE_DIR, 'animation'));
+  if (!LIVE) {
+    rmSync(SERVE_DIR, { recursive: true, force: true });
+    mkdirSync(SERVE_DIR, { recursive: true });
+    symlinkSync(join(ROOT, 'out'), join(SERVE_DIR, 'animation'));
+  }
 
-  const server = spawn('python3', ['-m', 'http.server', String(PORT), '--directory', SERVE_DIR], {
-    stdio: 'ignore',
-  });
+  const server = LIVE
+    ? null
+    : spawn('python3', ['-m', 'http.server', String(PORT), '--directory', SERVE_DIR], { stdio: 'ignore' });
   try {
     await waitForServer(BASE);
     const browser = await chromium.launch({
@@ -81,7 +85,7 @@ async function main(): Promise<void> {
     console.log('--- console/page errors:', errors.length ? errors : 'none');
     await browser.close();
   } finally {
-    server.kill();
+    server?.kill();
   }
 }
 
