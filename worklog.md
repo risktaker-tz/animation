@@ -93,3 +93,28 @@ Stage Summary:
 - Release: https://github.com/risktaker-tz/animation/releases/tag/demo-video-v2
 - Repo: main @ 4914cb8. Only animation repo touched.
 - Ops note: dev server needs Complete-tool redeploy to persist (sandbox reaps background children).
+
+---
+Task ID: 5
+Agent: main (Z.ai)
+Task: User feedback round 2 — character interaction facing (left/right/front/back) not implemented well, arms sometimes missing, improve interactions and chemistry.
+
+Work Log:
+- Root-caused missing arms: both arm limbs were drawn BEHIND the torso in buildCharacterSvg, so any pose with hands near the body (write/read/hug/give/clap/sad/pet) had arms swallowed by the outfit. Refactored into shared bodyParts() and now renders BOTH arms in front of the torso (figure order: legs → neck → torso → armR → armL → hair → head → props).
+- Fixed prop/pose mismatches: phone now held at ear height, write pencil under the hand, pet pose reaches down to animal height.
+- Built a full orientation system: Facing = front/left/right/back. Deterministic facing-cue track in director.ts (buildFacingCues/applyFacingCues): entrances face the walk direction then settle front; speakers and their targets turn toward each other in dialogue; interaction actors face partners (and home while walking back); exit beats turn the back. Renderer applies a cartoon pivot (FACING_SCALE lerp through edge-on), 3/4 profile faces via new yaw param in emotions.drawFace (features slide + squeeze + profile nose hint), face fade at edge-on, and new back-view sprites (buildCharacterBackSvg: per-hairstyle back hair, back outfit incl. hoodie hood, no face).
+- Animals: flip now derives from facing (fetch dog faces its run direction and turns back to the thrower; petted animals face the petter).
+- Interaction chemistry: per-action stand-off distances (hug 112 / whisper 108 / highfive 152 / give 136 / pet 165 / fetch 235), partner steps halfway for hug/high-five, actor raises the acting arm before arriving (anticipation), partner reactions during walk-back (cheer after high-five/give, shock after whisper, hug lingering), impact recoil tuned, speech bubbles bias 150px away from the interaction partner.
+- Exit rework: character turns around (back view) first, then walks off into the distance with recede + 12% shrink + fade.
+- Preload: back-view sprites for all poses in images.ts + render-entry.ts; renderer falls back to front sprite if a back key is missing.
+- drawStaticFrame: editor previews now face the stage middle when multiple cast members are present.
+- Story: added dialogue targets across all conversation beats (Mom/Max, Dad/Max, Max/Rex) + new finale beat "Come on, Rex — let's go tell everyone!" with back-view exit; runtime 121.7 s.
+- Verification: new scripts/preview_frames.ts + crop_preview.py; visually inspected 17 timestamp crops (write arms, conversation facing both sides, hug contact, high-five contact + partner cheer reaction, fetch toss/run flip, pet stroke, read, entrance, pivot turn, back view walk-off). tsc clean, lint clean, browser console clean, home/watch/mp4 all 200.
+- Render: resumable two-phase renderer (frames/ then assemble/) — 3650 frames @30fps → download/max-and-rex-story.mp4 (121.7 s, 1280×720 h264+aac, 7.4 MB). New contact sheet + fresh storyforge bundle.
+- Delivery: assets refreshed in public/, GitHub release demo-video-v3 (id 425112664, mp4+jpg+json uploaded), commit 3292c1b pushed to main (only animation repo touched).
+
+Stage Summary:
+- Video v3: download/max-and-rex-story.mp4 (2:02) — characters face each other in every conversation, no more vanishing arms, natural turn-takings, back-view walk-off finale.
+- Release: https://github.com/risktaker-tz/animation/releases/tag/demo-video-v3
+- Repo: main @ 3292c1b. Nothing else on GitHub touched.
+- Ops note: preview persistence needs the Complete deploy path (sandbox reaps background processes).
