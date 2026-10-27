@@ -68,3 +68,28 @@ Stage Summary:
 - Direct file: .../max-and-rex-story.mp4 (same origin).
 - Permanent backup: https://github.com/risktaker-tz/animation/releases/download/demo-video-v1/max-and-rex-story.mp4 (needs GitHub login; repo is private).
 - Repo: main @ 390f6e7. Nothing else on GitHub touched.
+
+---
+Task ID: 4
+Agent: main (Z.ai)
+Task: User feedback round — ultra-realistic 3D-cartoon characters (no more dark silhouettes), natural movements, distinct voices, natural interactions; re-export video.
+
+Work Log:
+- Rewrote character-svg.ts (v3): volumetric soft-3D shading — radial skin gradients, cylindrical 3-layer limbs, fabric gradients + side shade + highlights, hair sheen, ears, nose volume, shoes with soles; added walkA/walkB stride poses; cache keys bumped.
+- Rewrote emotions.ts: big cartoon eyes (sclera shading, radial iris from new look.irisColor, pupil, 2 catchlights), deterministic per-character blinking (blinkOpenAt), gaze offsets, nose/blush/lip rendering, restyled glasses.
+- Rewrote animals.ts: fur palettes with radial gradients + belly light + ear inner + glossy eyes (golden dog, silver cat); removed non-deterministic Date.now tail.
+- director.ts: breathing/micro-sway idles (per-cast phase), walk-cycle sprite alternation on entrances/travel/exit/run, eased 3-phase interaction choreography (walk-in, contact micro-motion incl. hug sway/highfive recoil/whisper lean-in/pet strokes, walk-back), squash & stretch jump + landing dust, gaze-at-speaker pass, phrase-gap lip-sync, child drawH, exit walk-off, animal bubble height fix.
+- renderer.ts: scaleX/scaleY/lean application, blink+gaze wiring, tMs in FrameState, gift FX, restingVisual child sizing.
+- voice.ts: bank expanded to 24 Kokoro voices, dog default am_puck→am_fenrir, added ensureUniqueVoices() dedupe guard (wired into player, render_video, render-entry).
+- story: bright outfits (green hoodie/rose sweater/blue blazer), realistic skin tones, iris colors, Rex voice → am_fenrir (fixes Max/Rex shared-voice clash), added hug finale; runtime 2:05.
+- Fixed pre-existing render_video.ts bug: frame timestamp `t` undefined → `i * frameStepMs`.
+- Verified: tsc clean, lint clean, 14 spot-check frames visually inspected.
+- Render: dev server killed to fit 4 GB RAM (next 1.45 GB + TTS 743 MB + chromium); 3747 frames @30fps → download/max-and-rex-story.mp4 (124.9 s, 7.58 MB, peak −0.9 dB). Restarted dev via supervisor loop.
+- Discovered sandbox reaps ALL background processes between Bash tool calls (canary-verified); persistent preview requires the Complete deploy path.
+- Deliveries: new contact sheet, public/ assets, GitHub release demo-video-v2 (mp4 + jpg + fresh storyforge json), commit 4914cb8 pushed to main.
+
+Stage Summary:
+- Video v2: download/max-and-rex-story.mp4 (2:05) — colorful 3D-cartoon cast, walk cycles, blinking/gaze, unique voices (Max=Puck+1.22, Rex=Fenrir+1.5, Mom=Heart, Dad=Michael, Whiskers=Sky, Narrator=George).
+- Release: https://github.com/risktaker-tz/animation/releases/tag/demo-video-v2
+- Repo: main @ 4914cb8. Only animation repo touched.
+- Ops note: dev server needs Complete-tool redeploy to persist (sandbox reaps background children).
