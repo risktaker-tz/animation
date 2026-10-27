@@ -8,6 +8,7 @@ import { isAnimal } from '@/lib/types';
 import { buildMaxRexProject, STORY_CHARACTERS } from '@/lib/story-max-rex';
 import { buildTimeline, frameStateAt, type Timeline } from '@/lib/engine/director';
 import { drawFrame } from '@/lib/engine/renderer';
+import { ensureUniqueVoices } from '@/lib/engine/voice';
 import { buildCharacterSvg, lookKey, POSE_FOR_ACTION, type Pose } from '@/lib/character-svg';
 import { buildAnimalSvg, animalKey, variantForAction, type AnimalVariant } from '@/lib/animals';
 import { getBackground } from '@/lib/backgrounds';
@@ -16,6 +17,7 @@ import { bgKey, injectCachedImage } from '@/lib/engine/images';
 const characters: Record<string, Character> = Object.fromEntries(
   STORY_CHARACTERS.map((c) => [c.id, c])
 );
+ensureUniqueVoices(Object.values(characters));
 const project = buildMaxRexProject();
 let timeline: Timeline | null = null;
 let canvas: HTMLCanvasElement | null = null;
@@ -40,7 +42,7 @@ async function preload(): Promise<void> {
   for (const shot of project.shots) {
     tasks.push(ensureImage(bgKey(shot.backgroundId), getBackground(shot.backgroundId).svg()));
   }
-  const poses = new Set<Pose>(['idle']);
+  const poses = new Set<Pose>(['idle', 'walkA', 'walkB']);
   for (const shot of project.shots) {
     for (const b of shot.beats) {
       const p = POSE_FOR_ACTION[b.action];

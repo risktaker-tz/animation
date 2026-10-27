@@ -25,18 +25,24 @@ export const VOICE_BANK: VoiceOption[] = [
   { id: 'af_sky', label: 'Sky', gender: 'female', accent: 'American', vibe: 'youthful & lively' },
   { id: 'af_nova', label: 'Nova', gender: 'female', accent: 'American', vibe: 'polished' },
   { id: 'af_kore', label: 'Kore', gender: 'female', accent: 'American', vibe: 'confident' },
+  { id: 'af_sarah', label: 'Sarah', gender: 'female', accent: 'American', vibe: 'pleasant' },
+  { id: 'af_aoede', label: 'Aoede', gender: 'female', accent: 'American', vibe: 'airy' },
   { id: 'bf_emma', label: 'Emma', gender: 'female', accent: 'British', vibe: 'poised' },
   { id: 'bf_isabella', label: 'Isabella', gender: 'female', accent: 'British', vibe: 'refined' },
   { id: 'bf_alice', label: 'Alice', gender: 'female', accent: 'British', vibe: 'crisp' },
+  { id: 'bf_lily', label: 'Lily', gender: 'female', accent: 'British', vibe: 'bright' },
   { id: 'am_michael', label: 'Michael', gender: 'male', accent: 'American', vibe: 'warm & grounded' },
   { id: 'am_adam', label: 'Adam', gender: 'male', accent: 'American', vibe: 'steady' },
   { id: 'am_fenrir', label: 'Fenrir', gender: 'male', accent: 'American', vibe: 'energetic' },
   { id: 'am_onyx', label: 'Onyx', gender: 'male', accent: 'American', vibe: 'deep & cinematic' },
   { id: 'am_puck', label: 'Puck', gender: 'male', accent: 'American', vibe: 'playful' },
   { id: 'am_echo', label: 'Echo', gender: 'male', accent: 'American', vibe: 'calm' },
+  { id: 'am_eric', label: 'Eric', gender: 'male', accent: 'American', vibe: 'easy-going' },
+  { id: 'am_liam', label: 'Liam', gender: 'male', accent: 'American', vibe: 'young & clear' },
   { id: 'bm_george', label: 'George', gender: 'male', accent: 'British', vibe: 'distinguished' },
   { id: 'bm_fable', label: 'Fable', gender: 'male', accent: 'British', vibe: 'storyteller' },
   { id: 'bm_daniel', label: 'Daniel', gender: 'male', accent: 'British', vibe: 'reassuring' },
+  { id: 'bm_lewis', label: 'Lewis', gender: 'male', accent: 'British', vibe: 'upbeat' },
 ];
 
 export const DEFAULT_FEMALE_VOICE = 'af_heart';
@@ -69,7 +75,7 @@ export function resolveVoice(ch?: Character | null): ResolvedVoice {
   if (isAnimal(ch)) {
     // animals "speak" through pitched-up novelty lines (Woof!/Meow!)
     const species = ch.species ?? 'dog';
-    const base = species === 'bird' ? 'af_sky' : species === 'cat' ? 'af_sky' : 'am_puck';
+    const base = species === 'bird' ? 'af_sky' : species === 'cat' ? 'af_sky' : 'am_fenrir';
     return {
       voiceId: ch.voice.voiceId || base,
       speed: ch.voice.speed ?? 1.15,
@@ -99,6 +105,32 @@ const FEMALE_NAMES = /^(maya|emma|mia|lily|sara|sarah|zoe|ava|nina|rosa|anna|len
 export function guessGender(name: string): 'female' | 'male' {
   if (FEMALE_NAMES.test(name.trim())) return 'female';
   return 'male';
+}
+
+const FEMALE_PREFERENCE = ['af_heart', 'af_bella', 'af_sky', 'af_nicole', 'af_nova', 'af_kore', 'af_sarah', 'af_aoede', 'bf_emma', 'bf_isabella', 'bf_alice', 'bf_lily'];
+const MALE_PREFERENCE = ['am_michael', 'am_puck', 'am_fenrir', 'am_adam', 'am_onyx', 'am_echo', 'am_eric', 'am_liam', 'bm_george', 'bm_fable', 'bm_daniel', 'bm_lewis'];
+
+/**
+ * Guarantee every speaking character has a distinct neural voice.
+ * Duplicates (same voiceId) beyond the first are re-assigned deterministically
+ * from the gender preference list. Mutates and returns the cast array.
+ */
+export function ensureUniqueVoices(characters: Character[]): Character[] {
+  const speakers = characters.filter((c) => !isAnimal(c) || c.voice.voiceId);
+  const used = new Set<string>();
+  for (const c of speakers) {
+    const current = c.voice.voiceId || resolveVoice(c).voiceId;
+    if (!used.has(current)) {
+      c.voice.voiceId = current;
+      used.add(current);
+      continue;
+    }
+    const prefs = guessGender(c.name) === 'female' ? FEMALE_PREFERENCE : MALE_PREFERENCE;
+    const pick = prefs.find((v) => !used.has(v)) ?? prefs[0];
+    c.voice.voiceId = pick;
+    used.add(pick);
+  }
+  return characters;
 }
 
 // ---------------------------------------------------------------- audio graph

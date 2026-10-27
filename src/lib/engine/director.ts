@@ -12,7 +12,7 @@ import { NARRATOR_VOICE, isAnimal } from '@/lib/types';
 import { POSE_FOR_ACTION, type Pose } from '@/lib/character-svg';
 import { variantForAction, type AnimalVariant } from '@/lib/animals';
 import type { CastVisual, FrameState, FxInstance, FxKind } from './renderer';
-import { POSITION_X, drawHFor, restingVisual } from './renderer';
+import { POSITION_X, drawHFor, restingVisual, animalDrawH } from './renderer';
 
 // ---------------------------------------------------------------------------
 // Director: pure, deterministic timeline simulation.
@@ -111,9 +111,32 @@ export interface Timeline {
 const INTERACTION_ACTIONS = new Set<BeatAction>(['hug', 'highfive', 'give', 'whisper', 'pet', 'fetch']);
 const APPROACH_MS = 620;
 const RETURN_MS = 560;
+const TRAVEL_IN = 0.3; // fraction of the beat spent walking toward the partner
+const TRAVEL_OUT = 0.72; // fraction when the walk back begins
+const STEP_MS = 150; // walk-cycle frame length
 
 export function actionDuration(a: BeatAction): number {
   return ACTION_MS[a] ?? 0;
+}
+
+/** alternate stride frames → a real 2-frame walk cycle */
+function walkingPose(elapsedMs: number, stepMs = STEP_MS): Pose {
+  return Math.floor(elapsedMs / stepMs) % 2 === 0 ? 'walkA' : 'walkB';
+}
+
+function easeInOutSine(p: number): number {
+  const c = Math.max(0, Math.min(1, p));
+  return -(Math.cos(Math.PI * c) - 1) / 2;
+}
+
+/** deterministic 0..1 hash (breathing phase offsets, etc.) */
+function hash01(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return ((h >>> 0) % 10000) / 10000;
 }
 
 /** Build the deterministic timeline. audioDur maps beatId → audio length in ms. */
@@ -261,15 +284,19 @@ export function frameStateAt(
   const t = Math.max(0, tMs);
 
   const visuals: CastVisual[] = shot.cast.map((entry) => {
-    const v = restingVisual(entry);
     const ch = characters[entry.characterId];
-    v.drawH = drawHFor(entry.position, isAnimal(ch));
-    v.flip = entry.position === 'right';
+    const v = restingVisual(entry, ch);
+    if (ch && isAnimal(ch)) {
+      v.drawH = animalDrawH(ch, entry.position);
+      v.flip = entry.position === 'right';
+    } else {
+      v.drawH = drawHFor(entry.position, false, ch?.look.age);
+    }
     return v;
   });
   const byId = new Map(visuals.map((v) => [v.castId, v]));
 
-  // --- entrances
+  // --- entrances (natural walk / run cycles)
   for (const entry of shot.cast) {
     const enterMs = ENTER_MS[entry.enter] ?? 0;
     if (enterMs <= 0) continue;
@@ -284,10 +311,12 @@ export function frameStateAt(
       const dir = entry.enter === 'walkLeft' || entry.enter === 'runLeft' ? -1 : 1;
       const from = dir < 0 ? -240 : 1520;
       v.x = v.x + (from - v.x) * (1 - e);
-      const freq = entry.enter.startsWith('run') ? 7 : 5;
-      v.footY -= Math.abs(Math.sin(p * Math.PI * freq)) * 7;
-      if (entry.enter.startsWith('run')) {
-        v.x = v.x + (dir < 0 ? 60 : -60) * Math.sin(p * Math.PI); // burst
+      const run = entry.enter.startsWith('run');
+      const step = run ? 105 : STEP_MS;
+      if (p < 1) {
+        v.pose = walkingPose(since, step);
+        v.footY -= Math.abs(Math.sin((since / step) * Math.PI)) * (run ? 8 : 5);
+        v.lean = dir * (run ? 0.09 : 0.045);
       }
     }
   }
@@ -318,7 +347,7 @@ export function frameStateAt(
         target.emotion = beat.emotion;
       }
 
-      applyAction(beat.action, actor, actorCh, target, targetCh, p, fx);
+      applyAction(beat.action, actor, actorCh, target, targetCh, p, t - beatTiming.startMs, fx);
 
       if (beat.text) {
         beatText = beat.text;
@@ -327,7 +356,11 @@ export function frameStateAt(
         if (t >= audioStart && t < audioStart + beatTiming.audioDurMs + 120) {
           speakingCharacterId = beat.characterId;
           const at = (t - audioStart) / 1000;
-          talkOpen = 0.25 + 0.75 * Math.abs(Math.sin(at * 11.3) * (0.65 + 0.35 * Math.sin(at * 2.6)));
+          // syllable flutter × phrase gaps → readable, human lip movement
+          const flutter = Math.abs(Math.sin(at * 11.0) * (0.65 + 0.35 * Math.sin(at * 2.4)));
+          const phrase = Math.sin(at * 2.9 + 0.6);
+          const gap = phrase < -0.72 ? 0.12 : 1;
+          talkOpen = (0.18 + 0.82 * flutter) * gap;
         }
       }
     }
@@ -346,6 +379,44 @@ export function frameStateAt(
 
   // --- fx from speaking/target state (spawned continuously by applyAction above)
 
+  // --- gaze: everyone looks at whoever is speaking / acting
+  const focusV = speakingCharacterId
+    ? visuals.find((v) => v.characterId === speakingCharacterId)
+    : beatTiming && beatTiming.characterId
+      ? byId.get(castIdOf(shot, beatTiming.characterId))
+      : undefined;
+  if (focusV) {
+    const focusHeadY = focusV.footY - focusV.drawH * 0.8;
+    for (const v of visuals) {
+      if (v === focusV || !v.visible) continue;
+      const myHeadY = v.footY - v.drawH * 0.8;
+      v.gazeDx = Math.max(-1, Math.min(1, (focusV.x - v.x) / 340));
+      v.gazeDy = Math.max(-0.7, Math.min(0.7, (focusHeadY - myHeadY) / 260));
+    }
+    // the focus looks at their interaction partner, if any
+    if (beatTiming?.targetCharacterId) {
+      const tv = byId.get(castIdOf(shot, beatTiming.targetCharacterId));
+      if (tv && tv !== focusV) {
+        focusV.gazeDx = Math.max(-1, Math.min(1, (tv.x - focusV.x) / 340));
+      }
+    }
+  }
+
+  // --- living idle: breathing + micro-sway (composites over actions)
+  if (shot.kind !== 'title') {
+    for (const v of visuals) {
+      if (!v.visible) continue;
+      const ph = hash01(v.castId) * Math.PI * 2;
+      const br = Math.sin(t * 0.00196 + ph);
+      const ch = characters[v.characterId];
+      const amp = isAnimal(ch) ? 1.1 : 1.8;
+      v.footY -= br * amp;
+      v.scaleY = (v.scaleY ?? 1) + br * 0.005;
+      v.scaleX = (v.scaleX ?? 1) - br * 0.003;
+      v.rotation = (v.rotation ?? 0) + br * 0.003;
+    }
+  }
+
   // --- camera + transition
   const transitionProgress = shotTiming.transitionMs === 0
     ? 1
@@ -362,6 +433,7 @@ export function frameStateAt(
     beatCharacterId,
     cameraProgress,
     transitionProgress,
+    tMs: t,
     fx,
   };
 }
@@ -384,6 +456,7 @@ function applyAction(
   target: CastVisual | undefined,
   targetCh: Character | undefined,
   p: number,
+  elapsedMs: number,
   fx: FxInstance[]
 ): void {
   if (actor) actor.pose = POSE_FOR_ACTION[action] ?? 'idle';
@@ -407,16 +480,65 @@ function applyAction(
     target.animalVariant = v as AnimalVariant;
   }
 
-  // travel for two-actor interactions
+  // --- two-actor interactions: natural 3-phase choreography
+  // (walk in → act with contact motion → walk back)
   if (INTERACTION_ACTIONS.has(action) && actor && target && actorCh && !isAnimal(actorCh)) {
     const homeX = actor.homeX ?? 300;
-    const phase = p < 0.28 ? p / 0.28 : p > 0.74 ? 1 - (p - 0.74) / 0.26 : 1;
-    const e = easeOutCubic(Math.max(0, Math.min(1, phase)));
     const dir = target.x > homeX ? 1 : -1;
     const stopX = target.x - dir * (GAP + (isAnimal(targetCh) ? 60 : 0));
-    actor.x = homeX + (stopX - homeX) * e;
-    actor.footY -= Math.abs(Math.sin(e * Math.PI * 4)) * 5; // steps
-    if (action === 'fetch' && targetCh && isAnimal(targetCh)) {
+    if (p < TRAVEL_IN) {
+      const e = easeInOutSine(p / TRAVEL_IN);
+      actor.x = homeX + (stopX - homeX) * e;
+      const el = (p / TRAVEL_IN) * APPROACH_MS;
+      actor.pose = walkingPose(el);
+      actor.footY -= Math.abs(Math.sin((el / STEP_MS) * Math.PI)) * 5;
+      actor.lean = dir * 0.05;
+    } else if (p > TRAVEL_OUT) {
+      const q = (p - TRAVEL_OUT) / (1 - TRAVEL_OUT);
+      const e = easeInOutSine(q);
+      actor.x = stopX + (homeX - stopX) * e;
+      const el = q * RETURN_MS;
+      actor.pose = walkingPose(el);
+      actor.footY -= Math.abs(Math.sin((el / STEP_MS) * Math.PI)) * 5;
+      actor.lean = -dir * 0.05;
+    } else {
+      // standing at the partner — contact micro-motion
+      actor.x = stopX;
+      const act = (p - TRAVEL_IN) / (TRAVEL_OUT - TRAVEL_IN);
+      switch (action) {
+        case 'hug': {
+          const sway = Math.sin(act * Math.PI * 2);
+          actor.lean = dir * 0.055 + sway * 0.012;
+          if (target) target.lean = -dir * 0.055 - sway * 0.012;
+          break;
+        }
+        case 'highfive': {
+          actor.lean = dir * 0.02;
+          const pulse = Math.exp(-Math.pow((p - 0.52) * 14, 2)); // impact recoil
+          if (target) {
+            target.scaleX = (target.scaleX ?? 1) + pulse * 0.04;
+            target.scaleY = (target.scaleY ?? 1) - pulse * 0.03;
+            target.lean = -dir * pulse * 0.06;
+          }
+          break;
+        }
+        case 'whisper': {
+          const leanIn = Math.sin(act * Math.PI);
+          actor.lean = dir * (0.03 + leanIn * 0.1);
+          if (target) target.lean = -dir * 0.018 * leanIn;
+          break;
+        }
+        case 'pet': {
+          const stroke = Math.sin(act * Math.PI * 3);
+          actor.footY -= Math.max(0, stroke) * 2.6; // 3 gentle strokes
+          break;
+        }
+        default:
+          actor.lean = dir * 0.015;
+          break;
+      }
+    }
+    if (action === 'fetch' && targetCh && isAnimal(targetCh) && target) {
       // dog dashes toward the ball and back
       const dp = p < 0.3 ? 0 : p < 0.62 ? (p - 0.3) / 0.32 : p < 0.8 ? 1 - (p - 0.62) / 0.18 : 0;
       const away = dir * 240;
@@ -425,16 +547,49 @@ function applyAction(
     }
   }
 
-  // one-actor motions (mirror the classic player)
+  // --- exit: walk off toward the nearest edge, then gone
+  if (action === 'exit' && actor) {
+    const dir = (actor.homeX ?? 300) < 640 ? -1 : 1;
+    const e = easeInOutSine(p);
+    actor.x = (actor.homeX ?? 300) + dir * 560 * e;
+    actor.pose = walkingPose(p * 1050);
+    actor.footY -= Math.abs(Math.sin((p * 1050 / STEP_MS) * Math.PI)) * 5;
+    actor.lean = dir * 0.05;
+    if (p > 0.92) actor.visible = false;
+  }
+
+  // one-actor motions
   if (!actor) return;
   const b = { x: actor.homeX ?? actor.x, footY: actor.homeFootY ?? actor.footY };
   switch (action) {
     case 'wave':
       actor.rotation = Math.sin(p * Math.PI * 6) * 0.07;
       break;
-    case 'jump':
+    case 'jump': {
+      // anticipation squash → stretch up → land squash → settle
       actor.footY = b.footY - Math.abs(Math.sin(p * Math.PI * 2)) * 46;
+      if (p < 0.12) {
+        const k = p / 0.12;
+        actor.scaleX = 1 + 0.05 * k;
+        actor.scaleY = 1 - 0.06 * k;
+      } else if (p < 0.5) {
+        const k = (p - 0.12) / 0.38;
+        actor.scaleX = 1.05 - 0.1 * k;
+        actor.scaleY = 0.94 + 0.13 * k;
+      } else if (p < 0.62) {
+        actor.scaleX = 0.95;
+        actor.scaleY = 1.07;
+      } else if (p < 0.78) {
+        const k = (p - 0.62) / 0.16;
+        actor.scaleX = 0.95 + 0.1 * k;
+        actor.scaleY = 1.07 - 0.12 * k;
+      } else {
+        const k = (p - 0.78) / 0.22;
+        actor.scaleX = 1.05 - 0.05 * k;
+        actor.scaleY = 0.95 + 0.05 * k;
+      }
       break;
+    }
     case 'nod':
       actor.footY = b.footY - Math.abs(Math.sin(p * Math.PI * 3)) * 9;
       actor.rotation = Math.sin(p * Math.PI * 3) * 0.03;
@@ -448,8 +603,9 @@ function applyAction(
       actor.x = b.x + Math.sin(p * Math.PI * 4) * 16;
       break;
     case 'run':
-      actor.footY = b.footY - Math.abs(Math.sin(p * Math.PI * 10)) * 9;
-      actor.rotation = 0.06;
+      actor.pose = walkingPose(elapsedMs, 105);
+      actor.footY = b.footY - Math.abs(Math.sin((elapsedMs / 105) * Math.PI)) * 9;
+      actor.lean = 0.07;
       break;
     case 'sneak':
       actor.rotation = 0.05;
@@ -469,13 +625,12 @@ function applyAction(
       actor.footY = b.footY - Math.abs(Math.sin(p * Math.PI)) * 12;
       break;
     case 'sit':
-      actor.footY = b.footY + 26 * Math.min(1, p * 3) * (1 - Math.max(0, (p - 0.85) / 0.15) * 0.0);
+      actor.footY = b.footY + 26 * Math.min(1, p * 3);
       break;
     case 'fetch':
       actor.rotation = Math.sin(p * Math.PI * 2) * 0.08;
       break;
     case 'pet':
-      // crouch handled by pose; slight bob
       actor.footY = b.footY - Math.abs(Math.sin(p * Math.PI * 2)) * 3;
       break;
     default:
@@ -511,6 +666,7 @@ function spawnActionFx(
     case 'cheer':
     case 'jump':
       if (p > 0.2) push('sparkles', ah.x, ah.y - 30);
+      if (action === 'jump' && p > 0.62 && p < 0.9) push('dust', actor.x, actor.footY - 4);
       break;
     case 'clap':
       if (p > 0.25 && Math.floor(p * 6) % 2 === 0) push('sparkles', ah.x, ah.y + 60);
@@ -534,14 +690,25 @@ function spawnActionFx(
       if (p < 0.7) push('dots', ah.x + 44, ah.y + 6);
       break;
     case 'hug':
-      if (p > 0.32 && p < 0.72) push('hearts', (ah.x + th.x) / 2, Math.min(ah.y, th.y) - 10);
+      if (p > 0.34 && p < 0.7) push('hearts', (ah.x + th.x) / 2, Math.min(ah.y, th.y) - 10);
       break;
     case 'highfive':
-      if (p > 0.4 && p < 0.6) push('sparkles', (ah.x + th.x) / 2, Math.min(ah.y, th.y) + 40);
+      if (p > 0.46 && p < 0.62) push('sparkles', (ah.x + th.x) / 2, Math.min(ah.y, th.y) + 40);
       break;
-    case 'give':
-      if (p > 0.38 && p < 0.66) push('sparkles', (ah.x + th.x) / 2, Math.max(ah.y, th.y) + 90);
+    case 'give': {
+      if (p > 0.36 && p < 0.68) {
+        const gp = Math.max(0, Math.min(1, (p - 0.36) / 0.28));
+        fx.push({
+          kind: 'gift',
+          x: ah.x + (th.x > ah.x ? 26 : -26),
+          y: Math.max(ah.y, th.y) + 150,
+          p: gp,
+          toX: th.x,
+          toY: Math.max(ah.y, th.y) + 150,
+        });
+      }
       break;
+    }
     case 'whisper':
       if (p > 0.3 && p < 0.75) push('dots', ah.x + (th.x > ah.x ? 40 : -40), ah.y + 8);
       break;
@@ -575,6 +742,6 @@ export function positionX(p: Position): number {
   return POSITION_X[p];
 }
 
-export function restingCast(entry: CastEntry): CastVisual {
-  return restingVisual(entry);
+export function restingCast(entry: CastEntry, ch?: Character): CastVisual {
+  return restingVisual(entry, ch);
 }

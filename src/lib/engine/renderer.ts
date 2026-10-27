@@ -2,7 +2,7 @@ import type { CastEntry, Character, Emotion, Position, Shot } from '@/lib/types'
 import { isAnimal } from '@/lib/types';
 import { lookKey, SPRITE_W, DRAW_H, faceAnchor, type Pose } from '@/lib/character-svg';
 import { buildAnimalSvg, animalKey, ANIMAL_DRAW_H, ANIMAL_SPRITE_H, type AnimalVariant } from '@/lib/animals';
-import { drawFace } from '@/lib/emotions';
+import { drawFace, blinkOpenAt } from '@/lib/emotions';
 import { bgKey, getCachedImage } from '@/lib/engine/images';
 
 export const CANVAS_W = 1280;
@@ -25,7 +25,8 @@ export type FxKind =
   | 'dust'
   | 'dots'
   | 'waglines'
-  | 'ball';
+  | 'ball'
+  | 'gift';
 
 export interface FxInstance {
   kind: FxKind;
@@ -57,6 +58,14 @@ export interface CastVisual {
   /** home position for action math */
   homeX?: number;
   homeFootY?: number;
+  /** squash & stretch (1 = neutral), applied about the feet */
+  scaleX?: number;
+  scaleY?: number;
+  /** extra lean rotation (radians), e.g. walking lean-in */
+  lean?: number;
+  /** gaze offset toward a point of interest, in head-radius units */
+  gazeDx?: number;
+  gazeDy?: number;
 }
 
 export interface FrameState {
@@ -73,13 +82,16 @@ export interface FrameState {
   cameraProgress: number;
   /** 0..1 transition progress (1 = fully settled) */
   transitionProgress: number;
+  /** absolute timeline time (blinks, breathing phase) */
+  tMs: number;
   /** deterministic interaction effects */
   fx?: FxInstance[];
 }
 
-export function drawHFor(position: Position, animal = false): number {
+export function drawHFor(position: Position, animal = false, age?: 'adult' | 'child'): number {
+  if (animal) return 0;
   const base = position === 'center' ? DRAW_H + 14 : DRAW_H - 8;
-  return animal ? 0 : base;
+  return age === 'child' ? Math.round(base * 0.74) : base;
 }
 
 export function animalDrawH(ch: Character, position: Position): number {
@@ -88,7 +100,9 @@ export function animalDrawH(ch: Character, position: Position): number {
   return position === 'center' ? base * 1.06 : base;
 }
 
-export function restingVisual(entry: CastEntry): CastVisual {
+export function restingVisual(entry: CastEntry, ch?: Character): CastVisual {
+  const child = ch?.kind !== 'animal' && ch?.look.age === 'child';
+  const baseH = DRAW_H - (entry.position === 'center' ? 0 : 8) + (entry.position === 'center' ? 14 : 0);
   return {
     castId: entry.id,
     characterId: entry.characterId,
@@ -96,18 +110,20 @@ export function restingVisual(entry: CastEntry): CastVisual {
     emotion: entry.emotion,
     x: POSITION_X[entry.position],
     footY: FOOT_Y,
-    drawH: DRAW_H - (entry.position === 'center' ? 0 : 8) + (entry.position === 'center' ? 14 : 0),
+    drawH: child ? Math.round(baseH * 0.74) : baseH,
     alpha: 1,
     rotation: 0,
     visible: true,
     pose: 'idle',
     homeX: POSITION_X[entry.position],
     homeFootY: FOOT_Y,
+    scaleX: 1,
+    scaleY: 1,
   };
 }
 
-export function restingVisuals(shot: Shot): CastVisual[] {
-  return shot.cast.map(restingVisual);
+export function restingVisuals(shot: Shot, characters?: Record<string, Character>): CastVisual[] {
+  return shot.cast.map((e) => restingVisual(e, characters?.[e.characterId]));
 }
 
 // ---------------------------------------------------------------- helpers
@@ -386,6 +402,30 @@ function drawFx(ctx: CanvasRenderingContext2D, fx: FxInstance): void {
       ctx.stroke();
       break;
     }
+    case 'gift': {
+      const bx = fx.x + ((fx.toX ?? fx.x + 160) - fx.x) * p;
+      const by = fx.y + ((fx.toY ?? fx.y) - fx.y) * p - Math.sin(p * Math.PI) * 46;
+      const s = 15;
+      ctx.save();
+      ctx.translate(bx, by);
+      ctx.rotate(Math.sin(p * Math.PI * 2) * 0.12);
+      ctx.fillStyle = '#C25E7E';
+      ctx.strokeStyle = 'rgba(60,36,30,0.7)';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.roundRect(-s, -s * 0.8, s * 2, s * 1.6, 4);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#F2D24E';
+      ctx.fillRect(-s * 0.18, -s * 0.8, s * 0.36, s * 1.6);
+      ctx.fillRect(-s, -s * 0.14, s * 2, s * 0.28);
+      ctx.beginPath();
+      ctx.ellipse(-s * 0.28, -s * 0.95, s * 0.3, s * 0.2, -0.5, 0, Math.PI * 2);
+      ctx.ellipse(s * 0.28, -s * 0.95, s * 0.3, s * 0.2, 0.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      break;
+    }
   }
   ctx.restore();
 }
@@ -492,7 +532,8 @@ export function drawFrame(
       ctx.save();
       ctx.globalAlpha = v.alpha;
       ctx.translate(v.x, v.footY);
-      if (v.rotation) ctx.rotate(v.rotation);
+      const lean = v.lean ?? 0;
+      if (v.rotation || lean) ctx.rotate(v.rotation + lean);
       if (ch && isAnimal(ch)) {
         const species = ch.species ?? 'dog';
         const drawH = animalDrawH(ch, v.position);
@@ -512,6 +553,7 @@ export function drawFrame(
       } else {
         const s = v.drawH / 768;
         const img = ch ? getCachedImage(lookKey(ch.look, v.pose ?? 'idle')) : undefined;
+        ctx.scale(v.scaleX ?? 1, v.scaleY ?? 1);
         if (img) {
           const w = SPRITE_W * s;
           ctx.drawImage(img, -w / 2, -v.drawH, w, v.drawH);
@@ -525,6 +567,8 @@ export function drawFrame(
             emotion: v.emotion,
             talkOpen: talk,
             look: ch.look,
+            blinkOpen: blinkOpenAt(v.castId, fs.tMs),
+            gaze: { dx: v.gazeDx ?? 0, dy: v.gazeDy ?? 0 },
           });
         }
       }
@@ -567,7 +611,8 @@ export function drawStaticFrame(
   characters: Record<string, Character>,
   opts?: { beatText?: string | null; beatCharacterId?: string | null; emotionOverride?: Emotion }
 ): void {
-  const visuals = restingVisuals(shot).map((v) => {
+  const tMs = typeof performance !== 'undefined' ? performance.now() : 0;
+  const visuals = restingVisuals(shot, characters).map((v) => {
     const ch = characters[v.characterId];
     if (ch && isAnimal(ch)) {
       return { ...v, drawH: animalDrawH(ch, v.position), flip: v.position === 'right' };
@@ -586,6 +631,7 @@ export function drawStaticFrame(
     beatCharacterId: opts?.beatCharacterId ?? null,
     cameraProgress: 1,
     transitionProgress: 1,
+    tMs,
     fx: [],
   });
 }

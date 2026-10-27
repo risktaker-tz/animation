@@ -95,7 +95,7 @@ export interface VoiceConfig {
 }
 
 export interface CharacterLook {
-  /** humans: rim-light/aura tint. animals: accent tint */
+  /** humans: skin tone · animals: fur base color */
   skin: string;
   hair: HairStyle;
   hairColor: string;
@@ -104,6 +104,8 @@ export interface CharacterLook {
   pantsColor: string;
   glasses: boolean;
   age?: AgeVariant;
+  /** eye color for humans (defaults to a steel blue) */
+  irisColor?: string;
 }
 
 export interface Character {
@@ -244,16 +246,16 @@ export const OUTFIT_STYLES: OutfitStyle[] = [
   'sweater',
 ];
 
-/** Rim-light / aura palette (replaces flat skin tones in the silhouette look) */
+/** Realistic skin tones + fur base colors (soft-3D cartoon look) */
 export const SKIN_TONES = [
-  '#F2C879',
-  '#E8A15D',
-  '#D98E4A',
-  '#C97B45',
-  '#8FB8D9',
-  '#7FD9C0',
-  '#C9A3D9',
-  '#D97B7B',
+  '#FFD5A6',
+  '#F5BE93',
+  '#E8A87C',
+  '#D18F5E',
+  '#B97A4E',
+  '#8D5A38',
+  '#6B4226',
+  '#4E2E1B',
 ];
 
 export const HAIR_COLORS = [
@@ -267,27 +269,37 @@ export const HAIR_COLORS = [
   '#3A2E3E',
 ];
 
+export const IRIS_COLORS = ['#6B4226', '#3E6E8C', '#4A7A5A', '#8C6238', '#5B7C99', '#3A3A44'];
+
 export const CLOTH_COLORS = [
-  '#1F4E4A',
-  '#4E1F2A',
-  '#37421F',
-  '#3A2444',
-  '#4A3A1C',
-  '#242E38',
-  '#40242E',
-  '#1F3340',
+  '#3E8C5A',
+  '#C25E7E',
+  '#4E8C4A',
+  '#7C5CB0',
+  '#D08A3E',
+  '#3E5C9C',
+  '#B04A3E',
+  '#3E8C8C',
 ];
 
 export const PANTS_COLORS = [
-  '#23262E',
-  '#2E2820',
-  '#2A2A30',
-  '#302323',
-  '#1F2A26',
-  '#20262E',
+  '#35507A',
+  '#4A4038',
+  '#3C4658',
+  '#5A4436',
+  '#2E4A44',
+  '#565058',
 ];
 
-export const ANIMAL_ACCENTS = ['#E8B36A', '#8FB8D9', '#C9A3D9', '#7FD9C0'];
+/** Fur base colors for animal actors */
+export const ANIMAL_ACCENTS = [
+  '#D9A05B',
+  '#8C6E4A',
+  '#9BA6B0',
+  '#E0955C',
+  '#C98A6A',
+  '#7FA8C9',
+];
 
 export function uid(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {

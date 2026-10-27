@@ -14,6 +14,7 @@ import {
   playAnimalSfx,
   stopAllSpeech,
   bufferCache,
+  ensureUniqueVoices,
   type ScheduledAudio,
 } from './voice';
 import { isAnimal } from '@/lib/types';
@@ -71,6 +72,7 @@ export class StoryPlayer {
     this.emit({ ...this.state, playing: true });
 
     try {
+      ensureUniqueVoices(Object.values(this.characters));
       await preloadProjectAssets(this.project, this.characters);
       const { durations } = await this.prepareAudio();
       this.timeline = buildTimeline(this.project, this.characters, durations);

@@ -98,7 +98,7 @@ export async function preloadProjectAssets(
         }
         for (const v of variants) tasks.push(ensureAnimalImage(ch, v).catch(() => undefined));
       } else {
-        const poses = new Set<Pose>(['idle']);
+        const poses = new Set<Pose>(['idle', 'walkA', 'walkB']);
         for (const b of shot.beats) {
           const p = POSE_FOR_ACTION[b.action];
           if (p) poses.add(p);

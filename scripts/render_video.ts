@@ -14,7 +14,7 @@ import { chromium } from 'playwright-core';
 
 import { buildMaxRexProject, STORY_CHARACTERS } from '../src/lib/story-max-rex';
 import { buildTimeline } from '../src/lib/engine/director';
-import { resolveVoice } from '../src/lib/engine/voice';
+import { resolveVoice, ensureUniqueVoices } from '../src/lib/engine/voice';
 import type { Character } from '../src/lib/types';
 
 const ROOT = '/home/z/my-project';
@@ -27,6 +27,7 @@ const CHROME = `${process.env.HOME}/.cache/ms-playwright/chromium-1200/chrome-li
 const characters: Record<string, Character> = Object.fromEntries(
   STORY_CHARACTERS.map((c) => [c.id, c])
 );
+ensureUniqueVoices(Object.values(characters));
 
 function ffprobeDuration(path: string): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -175,7 +176,7 @@ async function main() {
         w.__sfRender.frame(tt);
         const cv = document.querySelector('canvas') as HTMLCanvasElement;
         return cv.toDataURL('image/jpeg', 0.9);
-      }, t);
+      }, i * frameStepMs);
       frames.push(dataUrl);
     }
     for (const d of frames) {
