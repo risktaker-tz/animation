@@ -1,0 +1,616 @@
+{
+  "kind": "storyforge-project",
+  "version": 2,
+  "project": {
+    "id": "1bf8f38e-657d-480a-a046-85d3ba9bbcda",
+    "name": "Max & Rex: The Homework Trick",
+    "createdAt": 1793083652108,
+    "updatedAt": 1793083652108,
+    "shots": [
+      {
+        "id": "38e8d9bf-538b-4da5-aeb0-381ea1817284",
+        "kind": "title",
+        "backgroundId": "sunset-hill",
+        "camera": "zoom",
+        "transition": "fade",
+        "title": "Max & Rex",
+        "subtitle": "The Homework Trick — a StoryForge story",
+        "cast": [],
+        "beats": [
+          {
+            "id": "f5122ce2-c652-4d7c-bc0f-85ad9696fa33",
+            "characterId": null,
+            "text": "This is the story of a boy who did not want to study… and the animals who changed his mind.",
+            "action": "none",
+            "emotion": "inherit",
+            "targetId": null
+          }
+        ]
+      },
+      {
+        "id": "b1cabed2-14fc-4c47-9ad0-a7513106aaba",
+        "kind": "scene",
+        "backgroundId": "bedroom",
+        "camera": "wide",
+        "transition": "fade",
+        "title": "",
+        "subtitle": "",
+        "cast": [
+          {
+            "id": "cast-max",
+            "characterId": "ch-max",
+            "position": "center",
+            "emotion": "sad",
+            "enter": "none"
+          },
+          {
+            "id": "cast-mom",
+            "characterId": "ch-mom",
+            "position": "right",
+            "emotion": "neutral",
+            "enter": "walkRight"
+          }
+        ],
+        "beats": [
+          {
+            "id": "235a842c-7b72-4aef-8b1d-4d8c86593c18",
+            "characterId": null,
+            "text": "Saturday morning. Homework time.",
+            "action": "none",
+            "emotion": "inherit",
+            "targetId": null
+          },
+          {
+            "id": "32ce6629-ef94-46a8-8073-dab20e43dc3a",
+            "characterId": "ch-max",
+            "text": "Addition. Spelling. AGAIN. I do NOT want to study!",
+            "action": "write",
+            "emotion": "angry",
+            "targetId": null
+          },
+          {
+            "id": "c2411883-b3fa-4476-ac8b-7839e6d2e40c",
+            "characterId": "ch-max",
+            "text": "Books are so boring… animals are awesome.",
+            "action": "sulk",
+            "emotion": "sad",
+            "targetId": null
+          },
+          {
+            "id": "6611a900-c6aa-4650-bf9d-140b57415ddb",
+            "characterId": "ch-mom",
+            "text": "Max! Homework first, then play.",
+            "action": "point",
+            "emotion": "neutral",
+            "targetId": "cast-max"
+          },
+          {
+            "id": "c1c340f5-183c-4bb1-bc34-6ac1c3a682ca",
+            "characterId": "ch-max",
+            "text": "But Mom… studying is for grown-ups!",
+            "action": "shrug",
+            "emotion": "sad",
+            "targetId": "cast-mom"
+          },
+          {
+            "id": "40d82f88-5376-43a3-9095-f4ed348ee2db",
+            "characterId": "ch-mom",
+            "text": "Finish page ten. I will check in one hour.",
+            "action": "nod",
+            "emotion": "neutral",
+            "targetId": "cast-max"
+          },
+          {
+            "id": "511bd244-84d1-4ea8-b6b8-aecb29a74501",
+            "characterId": "ch-mom",
+            "text": "And no sneaking off, young man.",
+            "action": "point",
+            "emotion": "happy",
+            "targetId": "cast-max"
+          }
+        ]
+      },
+      {
+        "id": "72099da4-09bf-4b32-87b0-2da9f8cd7bda",
+        "kind": "scene",
+        "backgroundId": "living-room",
+        "camera": "wide",
+        "transition": "slide",
+        "title": "",
+        "subtitle": "",
+        "cast": [
+          {
+            "id": "cast-max",
+            "characterId": "ch-max",
+            "position": "left",
+            "emotion": "neutral",
+            "enter": "none"
+          },
+          {
+            "id": "cast-whiskers",
+            "characterId": "ch-whiskers",
+            "position": "center",
+            "emotion": "neutral",
+            "enter": "none"
+          },
+          {
+            "id": "cast-rex",
+            "characterId": "ch-rex",
+            "position": "right",
+            "emotion": "neutral",
+            "enter": "runLeft"
+          }
+        ],
+        "beats": [
+          {
+            "id": "7a370e75-d89c-4ee5-bfb6-d7572eed96a9",
+            "characterId": "ch-max",
+            "text": "While Mom is busy… Operation Animal Time begins!",
+            "action": "sneak",
+            "emotion": "happy",
+            "targetId": null
+          },
+          {
+            "id": "7dc38310-fa33-4743-866f-c67a4d7386db",
+            "characterId": "ch-whiskers",
+            "text": "Meow!",
+            "action": "meow",
+            "emotion": "happy",
+            "targetId": null
+          },
+          {
+            "id": "940564fb-102d-4358-a329-75f231bfd83d",
+            "characterId": "ch-max",
+            "text": "Whiskers! And look — Rex is ready to play!",
+            "action": "cheer",
+            "emotion": "happy",
+            "targetId": null
+          },
+          {
+            "id": "7fe4e769-cf23-472e-9c0c-a0c8470e079d",
+            "characterId": "ch-rex",
+            "text": "Woof woof!",
+            "action": "bark",
+            "emotion": "happy",
+            "targetId": null
+          }
+        ]
+      },
+      {
+        "id": "324910f7-43b4-41ae-aa88-5a10de279827",
+        "kind": "scene",
+        "backgroundId": "park",
+        "camera": "wide",
+        "transition": "fade",
+        "title": "",
+        "subtitle": "",
+        "cast": [
+          {
+            "id": "cast-max",
+            "characterId": "ch-max",
+            "position": "left",
+            "emotion": "happy",
+            "enter": "none"
+          },
+          {
+            "id": "cast-rex",
+            "characterId": "ch-rex",
+            "position": "right",
+            "emotion": "happy",
+            "enter": "none"
+          }
+        ],
+        "beats": [
+          {
+            "id": "47570863-9345-44e2-929a-90a29a3eb4c9",
+            "characterId": null,
+            "text": "At the park, Max and Rex played their favorite game.",
+            "action": "none",
+            "emotion": "inherit",
+            "targetId": null
+          },
+          {
+            "id": "00688f00-f351-4ff6-8ef5-fe5562329a19",
+            "characterId": "ch-max",
+            "text": "Go get it, Rex!",
+            "action": "fetch",
+            "emotion": "happy",
+            "targetId": "cast-rex"
+          },
+          {
+            "id": "a0303ae9-9b62-46fb-88c6-91470980641f",
+            "characterId": "ch-rex",
+            "text": "Woof!",
+            "action": "run",
+            "emotion": "happy",
+            "targetId": null
+          },
+          {
+            "id": "63f7345e-71ab-410b-8c5c-4cd4cdf8589b",
+            "characterId": "ch-max",
+            "text": "Good boy! You found it so fast. You are the smartest dog ever!",
+            "action": "pet",
+            "emotion": "happy",
+            "targetId": "cast-rex"
+          },
+          {
+            "id": "959cfe3f-8c77-4e8b-9512-f93d0c03ab50",
+            "characterId": "ch-rex",
+            "text": "Woof woof!",
+            "action": "wag",
+            "emotion": "happy",
+            "targetId": null
+          },
+          {
+            "id": "375400da-a302-4dbd-8e3a-371cf181998a",
+            "characterId": "ch-max",
+            "text": "Haha! You always make me laugh, boy.",
+            "action": "laugh",
+            "emotion": "happy",
+            "targetId": "cast-rex"
+          },
+          {
+            "id": "f65a8f1b-30cc-4b39-8bd9-3b89625feb27",
+            "characterId": "ch-max",
+            "text": "Hmm… how DO you find everything so quickly, boy?",
+            "action": "think",
+            "emotion": "neutral",
+            "targetId": "cast-rex"
+          }
+        ]
+      },
+      {
+        "id": "5df64fc8-384b-43d0-8beb-c30f36d37e6b",
+        "kind": "scene",
+        "backgroundId": "park",
+        "camera": "wide",
+        "transition": "fade",
+        "title": "",
+        "subtitle": "",
+        "cast": [
+          {
+            "id": "cast-max",
+            "characterId": "ch-max",
+            "position": "left",
+            "emotion": "happy",
+            "enter": "none"
+          },
+          {
+            "id": "cast-rex",
+            "characterId": "ch-rex",
+            "position": "center",
+            "emotion": "happy",
+            "enter": "none"
+          },
+          {
+            "id": "cast-dad",
+            "characterId": "ch-dad",
+            "position": "right",
+            "emotion": "neutral",
+            "enter": "walkRight"
+          }
+        ],
+        "beats": [
+          {
+            "id": "4c382bac-7027-456a-8da8-8e8c080c627d",
+            "characterId": "ch-dad",
+            "text": "Max… is not homework time right now?",
+            "action": "point",
+            "emotion": "neutral",
+            "targetId": "cast-max"
+          },
+          {
+            "id": "c559e414-94e7-4420-a42d-454a0746de7c",
+            "characterId": "ch-max",
+            "text": "I… I was just… Rex needed exercise!",
+            "action": "gasp",
+            "emotion": "scared",
+            "targetId": "cast-dad"
+          },
+          {
+            "id": "9a939399-8a75-4c68-8309-99cb8885cb91",
+            "characterId": "ch-dad",
+            "text": "Interesting. You taught Rex to fetch all by yourself?",
+            "action": "think",
+            "emotion": "neutral",
+            "targetId": "cast-max"
+          },
+          {
+            "id": "3a925b3d-5ab2-41d9-b17c-01fb938f86e1",
+            "characterId": "ch-max",
+            "text": "Well… yeah. Watch! Rex, sit!",
+            "action": "point",
+            "emotion": "neutral",
+            "targetId": "cast-rex"
+          },
+          {
+            "id": "d25d6aee-e694-4624-a2cf-8eacb00a8a9b",
+            "characterId": "ch-rex",
+            "text": "Woof!",
+            "action": "sit",
+            "emotion": "happy",
+            "targetId": null
+          },
+          {
+            "id": "f18cdc6f-fb01-47fc-bc89-bfe12e7c9443",
+            "characterId": "ch-dad",
+            "text": "That, kiddo, is animal science. Vets and zookeepers study every single day — to help animals.",
+            "action": "nod",
+            "emotion": "happy",
+            "targetId": "cast-max"
+          },
+          {
+            "id": "ae866815-64ee-4d5b-bbb3-cc4348fee8db",
+            "characterId": "ch-max",
+            "text": "WAIT. Studying helps me help ANIMALS?! Then give me that homework!",
+            "action": "cheer",
+            "emotion": "surprised",
+            "targetId": "cast-dad"
+          },
+          {
+            "id": "c4901ad5-b4bf-427b-b65f-30d4d00d5ec0",
+            "characterId": "ch-dad",
+            "text": "Ha! That is the spirit, champ.",
+            "action": "laugh",
+            "emotion": "happy",
+            "targetId": "cast-max"
+          },
+          {
+            "id": "5f69606c-c3a2-491b-8498-0fe335fa96fd",
+            "characterId": "ch-max",
+            "text": "High five, Dad!",
+            "action": "highfive",
+            "emotion": "happy",
+            "targetId": "cast-dad"
+          }
+        ]
+      },
+      {
+        "id": "27428ec8-df15-4b82-a5f6-415752f2e6a5",
+        "kind": "scene",
+        "backgroundId": "bedroom",
+        "camera": "wide",
+        "transition": "fade",
+        "title": "",
+        "subtitle": "",
+        "cast": [
+          {
+            "id": "cast-max",
+            "characterId": "ch-max",
+            "position": "left",
+            "emotion": "happy",
+            "enter": "none"
+          },
+          {
+            "id": "cast-rex",
+            "characterId": "ch-rex",
+            "position": "center",
+            "emotion": "happy",
+            "enter": "none"
+          },
+          {
+            "id": "cast-mom",
+            "characterId": "ch-mom",
+            "position": "right",
+            "emotion": "surprised",
+            "enter": "none"
+          }
+        ],
+        "beats": [
+          {
+            "id": "8e7ad4e7-572e-41a5-a761-e31fbfc895ca",
+            "characterId": "ch-max",
+            "text": "Chapter One: The Super Sniffing Power of Dogs!",
+            "action": "read",
+            "emotion": "happy",
+            "targetId": "cast-rex"
+          },
+          {
+            "id": "0471b9fc-93a4-4b21-a818-a567704c6391",
+            "characterId": "ch-max",
+            "text": "See, Rex? I am studying… for US!",
+            "action": "write",
+            "emotion": "happy",
+            "targetId": "cast-rex"
+          },
+          {
+            "id": "5ed4a018-4451-436c-8883-211da69d2d25",
+            "characterId": "ch-rex",
+            "text": "Woof woof!",
+            "action": "wag",
+            "emotion": "happy",
+            "targetId": null
+          },
+          {
+            "id": "4d04e019-fa17-4d7f-a120-61809e3494cf",
+            "characterId": "ch-mom",
+            "text": "Well… THAT is new!",
+            "action": "laugh",
+            "emotion": "happy",
+            "targetId": "cast-max"
+          },
+          {
+            "id": "5a0afd38-5099-43f2-8328-070ddd72fab2",
+            "characterId": "ch-mom",
+            "text": "I am proud of you, Max.",
+            "action": "clap",
+            "emotion": "happy",
+            "targetId": "cast-max"
+          },
+          {
+            "id": "7a63af6f-f88b-45cb-a069-6b0bfe567966",
+            "characterId": "ch-max",
+            "text": "Thank you, Mom! I love you!",
+            "action": "hug",
+            "emotion": "happy",
+            "targetId": "cast-mom"
+          },
+          {
+            "id": "e2b0a4e1-6187-49ab-899d-b1c34bd811a9",
+            "characterId": null,
+            "text": "Max still loves animals more than anything. But now he has a dream — and a plan.",
+            "action": "none",
+            "emotion": "inherit",
+            "targetId": null
+          },
+          {
+            "id": "c752ad84-7662-4aef-90ff-7d55120b2db9",
+            "characterId": "ch-max",
+            "text": "Homework now… vet school later!",
+            "action": "cheer",
+            "emotion": "happy",
+            "targetId": "cast-rex"
+          },
+          {
+            "id": "0f5d1bf9-1173-4d21-b66a-7626ca65d5d8",
+            "characterId": "ch-max",
+            "text": "Come on, Rex — let's go tell everyone!",
+            "action": "exit",
+            "emotion": "happy",
+            "targetId": null
+          }
+        ]
+      },
+      {
+        "id": "f205b379-e8fe-49ac-8780-01c1ed5f1222",
+        "kind": "title",
+        "backgroundId": "sunset-hill",
+        "camera": "zoom",
+        "transition": "fade",
+        "title": "The End",
+        "subtitle": "Find what makes you curious — then study like crazy.",
+        "cast": [],
+        "beats": [
+          {
+            "id": "b7941342-ea4e-4a10-a9bd-8ef45968ed07",
+            "characterId": null,
+            "text": "Every great dream starts with a spark. Feed your spark, and one day it will shine.",
+            "action": "none",
+            "emotion": "inherit",
+            "targetId": null
+          }
+        ]
+      }
+    ]
+  },
+  "characters": [
+    {
+      "id": "ch-max",
+      "name": "Max",
+      "kind": "human",
+      "look": {
+        "skin": "#FFD5A6",
+        "hair": "spiky",
+        "hairColor": "#5A3A22",
+        "outfit": "hoodie",
+        "outfitColor": "#3E8C5A",
+        "pantsColor": "#35507A",
+        "glasses": false,
+        "age": "child",
+        "irisColor": "#6B4226"
+      },
+      "voice": {
+        "voiceURI": "",
+        "rate": 1,
+        "pitch": 1.25,
+        "voiceId": "am_puck",
+        "speed": 1.04,
+        "pitchShift": 1.22
+      }
+    },
+    {
+      "id": "ch-mom",
+      "name": "Mom",
+      "kind": "human",
+      "look": {
+        "skin": "#F5BE93",
+        "hair": "bun",
+        "hairColor": "#2E241C",
+        "outfit": "sweater",
+        "outfitColor": "#C25E7E",
+        "pantsColor": "#4A4038",
+        "glasses": false,
+        "age": "adult",
+        "irisColor": "#3E6E8C"
+      },
+      "voice": {
+        "voiceURI": "",
+        "rate": 1,
+        "pitch": 1.05,
+        "voiceId": "af_heart",
+        "speed": 0.98,
+        "pitchShift": 1
+      }
+    },
+    {
+      "id": "ch-dad",
+      "name": "Dad",
+      "kind": "human",
+      "look": {
+        "skin": "#D18F5E",
+        "hair": "short",
+        "hairColor": "#20222C",
+        "outfit": "blazer",
+        "outfitColor": "#3E5C9C",
+        "pantsColor": "#2E3440",
+        "glasses": true,
+        "age": "adult",
+        "irisColor": "#5A4632"
+      },
+      "voice": {
+        "voiceURI": "",
+        "rate": 1,
+        "pitch": 0.85,
+        "voiceId": "am_michael",
+        "speed": 0.96,
+        "pitchShift": 1
+      }
+    },
+    {
+      "id": "ch-rex",
+      "name": "Rex",
+      "kind": "animal",
+      "species": "dog",
+      "look": {
+        "skin": "#D9A05B",
+        "hair": "short",
+        "hairColor": "#2E241C",
+        "outfit": "tee",
+        "outfitColor": "#3E8C5A",
+        "pantsColor": "#35507A",
+        "glasses": false
+      },
+      "voice": {
+        "voiceURI": "",
+        "rate": 1,
+        "pitch": 1.4,
+        "voiceId": "am_fenrir",
+        "speed": 1.18,
+        "pitchShift": 1.5
+      }
+    },
+    {
+      "id": "ch-whiskers",
+      "name": "Whiskers",
+      "kind": "animal",
+      "species": "cat",
+      "look": {
+        "skin": "#9BA6B0",
+        "hair": "short",
+        "hairColor": "#2E241C",
+        "outfit": "tee",
+        "outfitColor": "#7C5CB0",
+        "pantsColor": "#4A4038",
+        "glasses": false
+      },
+      "voice": {
+        "voiceURI": "",
+        "rate": 1,
+        "pitch": 1.4,
+        "voiceId": "af_sky",
+        "speed": 1.1,
+        "pitchShift": 1.45
+      }
+    }
+  ]
+}
